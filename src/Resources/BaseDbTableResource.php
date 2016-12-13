@@ -59,6 +59,10 @@ abstract class BaseDbTableResource extends BaseDbResource
      */
     protected $useBlendFormat = true;
     /**
+     * @var TableSchema
+     */
+    protected $transactionTableSchema = null;
+    /**
      * @var string
      */
     protected $transactionTable = null;
@@ -102,6 +106,9 @@ abstract class BaseDbTableResource extends BaseDbResource
     {
         /** @type TableSchema[] $result */
         $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE, $schema, $refresh);
+        // temporary until view is moved to its own resource
+        $result2 = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schema, $refresh);
+        $result = array_merge($result, $result2);
         $resources = [];
         foreach ($result as $table) {
             $name = $table->getName(true);
@@ -144,6 +151,9 @@ abstract class BaseDbTableResource extends BaseDbResource
         $schema = $this->request->getParameter(ApiOptions::SCHEMA, '');
         /** @type TableSchema[] $result */
         $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE, $schema, $refresh);
+        // temporary until view is moved to its own resource
+        $result2 = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schema, $refresh);
+        $result = array_merge($result, $result2);
         $resources = [];
         foreach ($result as $table) {
             $access = $this->getPermissions($table->getName(true));
@@ -173,6 +183,9 @@ abstract class BaseDbTableResource extends BaseDbResource
         //  Build the lower-cased table array
         /** @var TableSchema[] $result */
         $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE);
+        // temporary until view is moved to its own resource
+        $result2 = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW);
+        $result = array_merge($result, $result2);
         $tables = [];
         foreach ($result as $table) {
             $tables[strtolower($table->getName(true))] = $table;
@@ -1742,6 +1755,7 @@ abstract class BaseDbTableResource extends BaseDbResource
     protected function initTransaction($table_name, &$id_fields = null, $id_types = null, $require_ids = true)
     {
         $this->transactionTable = $table_name;
+        $this->transactionTableSchema = $this->getTableSchema(null, $table_name);
         $this->tableFieldsInfo = $this->getFieldsInfo($table_name);
         $this->tableIdsInfo = $this->getIdsInfo($table_name, $this->tableFieldsInfo, $id_fields, $id_types);
         $this->batchRecords = [];
@@ -2026,7 +2040,13 @@ abstract class BaseDbTableResource extends BaseDbResource
                 return new TableSchema($result);
             }
         } else {
-            return $this->parent->getSchema()->getResource(DbResourceTypes::TYPE_TABLE, $table);
+            if ($result = $this->parent->getSchema()->getResource(DbResourceTypes::TYPE_TABLE, $table)) {
+                return $result;
+            }
+            // temporary until view gets its own resource
+            if ($result = $this->parent->getSchema()->getResource(DbResourceTypes::TYPE_VIEW, $table)) {
+                return $result;
+            }
         }
 
         return null;
@@ -2819,7 +2839,7 @@ abstract class BaseDbTableResource extends BaseDbResource
      */
     protected function getFieldsInfo($table_name)
     {
-        $table = $this->schema->getResource(DbResourceTypes::TYPE_TABLE, $table_name);
+        $table = $this->getTableSchema(null, $table_name);
         if (!$table) {
             throw new NotFoundException("Table '$table_name' does not exist in the database.");
         }
@@ -2835,7 +2855,7 @@ abstract class BaseDbTableResource extends BaseDbResource
      */
     protected function describeTableRelated($table_name)
     {
-        $table = $this->schema->getResource(DbResourceTypes::TYPE_TABLE, $table_name);
+        $table = $this->getTableSchema(null, $table_name);
         if (!$table) {
             throw new NotFoundException("Table '$table_name' does not exist in the database.");
         }

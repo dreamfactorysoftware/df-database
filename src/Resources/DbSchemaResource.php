@@ -64,6 +64,9 @@ class DbSchemaResource extends BaseDbResource
     {
         /** @type TableSchema[] $result */
         $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE, $schema, $refresh);
+        // temporary until view is moved to its own resource
+        $result2 = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schema, $refresh);
+        $result = array_merge($result, $result2);
         $resources = [];
         foreach ($result as $table) {
             if (!empty($this->getPermissions($table->name))) {
@@ -106,6 +109,9 @@ class DbSchemaResource extends BaseDbResource
 
         /** @type TableSchema[] $result */
         $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE, $schema, $refresh);
+        // temporary until view is moved to its own resource
+        $result2 = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schema, $refresh);
+        $result = array_merge($result, $result2);
         $resources = [];
         foreach ($result as $table) {
             $access = $this->getPermissions($table->name);
@@ -617,6 +623,17 @@ class DbSchemaResource extends BaseDbResource
         return $result;
     }
 
+
+    protected function getTableSchema($name, $refresh = false)
+    {
+        if ($table = $this->parent->getSchema()->getResource(DbResourceTypes::TYPE_TABLE, $name, $refresh)) {
+            return $table;
+        }
+
+        // until view gets its own resource
+        return $this->parent->getSchema()->getResource(DbResourceTypes::TYPE_VIEW, $name, $refresh);
+    }
+
     /**
      * Get multiple tables and their properties
      *
@@ -649,7 +666,7 @@ class DbSchemaResource extends BaseDbResource
     /**
      * Get any properties related to the table
      *
-     * @param string | array $name   Table name or defining properties
+     * @param string | array $name    Table name or defining properties
      * @param bool           $refresh Force a refresh of the schema from the database
      *
      * @return array
@@ -663,7 +680,7 @@ class DbSchemaResource extends BaseDbResource
         }
 
         try {
-            $table = $this->parent->getSchema()->getResource(DbResourceTypes::TYPE_TABLE, $name, $refresh);
+            $table = $this->getTableSchema($name, $refresh);
             if (!$table) {
                 throw new NotFoundException("Table '$name' does not exist in the database.");
             }
@@ -684,7 +701,7 @@ class DbSchemaResource extends BaseDbResource
      *
      * @param string $table
      * @param array  $fields
-     * @param bool   $refresh      Force a refresh of the schema from the database
+     * @param bool   $refresh Force a refresh of the schema from the database
      *
      * @throws \Exception
      * @return array
@@ -747,7 +764,7 @@ class DbSchemaResource extends BaseDbResource
      *
      * @param string $table
      * @param array  $relationships
-     * @param bool   $refresh      Force a refresh of the schema from the database
+     * @param bool   $refresh Force a refresh of the schema from the database
      *
      * @throws \Exception
      * @return array
@@ -1413,7 +1430,14 @@ class DbSchemaResource extends BaseDbResource
      */
     public function doesTableExist($name, $returnName = false)
     {
-        return $this->parent->getSchema()->doesResourceExist(DbResourceTypes::TYPE_TABLE, $name, $returnName);
+        if (false !== $result = $this->parent->getSchema()->doesResourceExist(DbResourceTypes::TYPE_TABLE, $name,
+            $returnName)
+        ) {
+            return $result;
+        }
+
+        // temporary until views gets its own resource
+        return $this->parent->getSchema()->doesResourceExist(DbResourceTypes::TYPE_VIEW, $name, $returnName);
     }
 
 
@@ -1428,7 +1452,7 @@ class DbSchemaResource extends BaseDbResource
      */
     public function describeTableFields($table_name, $field_names = null, $refresh = false)
     {
-        $table = $this->parent->getSchema()->getResource(DbResourceTypes::TYPE_TABLE, $table_name, $refresh);
+        $table = $this->getTableSchema($table_name, $refresh);
         if (!$table) {
             throw new NotFoundException("Table '$table_name' does not exist in the database.");
         }
@@ -1468,7 +1492,7 @@ class DbSchemaResource extends BaseDbResource
     public function describeTableRelationships($table_name, $relationships = null, $refresh = false)
     {
         /** @var TableSchema $table */
-        $table = $this->parent->getSchema()->getResource(DbResourceTypes::TYPE_TABLE, $table_name, $refresh);
+        $table = $this->getTableSchema($table_name, $refresh);
         if (!$table) {
             throw new NotFoundException("Table '$table_name' does not exist in the database.");
         }
@@ -1589,7 +1613,7 @@ class DbSchemaResource extends BaseDbResource
         $base['paths'][$path] = array_merge($base['paths'][$path], $add);
 
         $apis = [
-            $path . '/{table_name}'              => [
+            $path . '/{table_name}'                              => [
                 'parameters' => [
                     [
                         'name'        => 'table_name',
@@ -1725,7 +1749,7 @@ class DbSchemaResource extends BaseDbResource
                     'description' => 'Careful, this drops the database table and all of its contents.',
                 ],
             ],
-            $path . '/{table_name}/_field'              => [
+            $path . '/{table_name}/_field'                       => [
                 'parameters' => [
                     [
                         'name'        => 'table_name',
@@ -1861,7 +1885,7 @@ class DbSchemaResource extends BaseDbResource
                     'description' => 'Careful, this drops the table column and all of its contents.',
                 ],
             ],
-            $path . '/{table_name}/_related'              => [
+            $path . '/{table_name}/_related'                     => [
                 'parameters' => [
                     [
                         'name'        => 'table_name',
@@ -1997,7 +2021,7 @@ class DbSchemaResource extends BaseDbResource
                     'description' => 'Removes the relationships between tables.',
                 ],
             ],
-            $path . '/{table_name}/_field/{field_name}' => [
+            $path . '/{table_name}/_field/{field_name}'          => [
                 'parameters' => [
                     [
                         'name'        => 'table_name',
@@ -2223,7 +2247,7 @@ class DbSchemaResource extends BaseDbResource
                     'description' => 'Removes the relationship between the tables given.',
                 ],
             ],
-            $path . '/{table_name}/{field_name}' => [
+            $path . '/{table_name}/{field_name}'                 => [
                 'parameters' => [
                     [
                         'name'        => 'table_name',
