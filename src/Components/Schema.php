@@ -3190,7 +3190,9 @@ MYSQL;
                 //	Does it already exist
                 if (!$tableSchema = $this->getResource(DbResourceTypes::TYPE_TABLE, $tableName)) {
                     // until views get their own resource
-                    $tableSchema = $this->getResource(DbResourceTypes::TYPE_VIEW, $tableName);
+                    if ($this->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
+                        $tableSchema = $this->getResource(DbResourceTypes::TYPE_VIEW, $tableName);
+                    }
                 }
                 if ($tableSchema) {
                     if (!$allow_merge) {
@@ -3984,6 +3986,9 @@ MYSQL;
             case DbSimpleTypes::TYPE_USER_ID_ON_UPDATE:
                 return \PDO::PARAM_INT;
 
+            case DbSimpleTypes::TYPE_BINARY:
+                return \PDO::PARAM_LOB;
+
             case DbSimpleTypes::TYPE_STRING:
                 return \PDO::PARAM_STR;
         }
@@ -4120,7 +4125,7 @@ MYSQL;
                 $phpType = $type;
                 break;
             default:
-                $pdoType = ($column->allowNull) ? null : $column->pdoType;
+                $pdoType = $column->pdoType;
                 $phpType = $column->phpType;
                 break;
         }

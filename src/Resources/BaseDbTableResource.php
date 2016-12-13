@@ -2043,9 +2043,11 @@ abstract class BaseDbTableResource extends BaseDbResource
             if ($result = $this->parent->getSchema()->getResource(DbResourceTypes::TYPE_TABLE, $table)) {
                 return $result;
             }
-            // temporary until view gets its own resource
-            if ($result = $this->parent->getSchema()->getResource(DbResourceTypes::TYPE_VIEW, $table)) {
-                return $result;
+            if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
+                // temporary until view gets its own resource
+                if ($result = $this->parent->getSchema()->getResource(DbResourceTypes::TYPE_VIEW, $table)) {
+                    return $result;
+                }
             }
         }
 
