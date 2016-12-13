@@ -106,9 +106,11 @@ abstract class BaseDbTableResource extends BaseDbResource
     {
         /** @type TableSchema[] $result */
         $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE, $schema, $refresh);
-        // temporary until view is moved to its own resource
-        $result2 = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schema, $refresh);
-        $result = array_merge($result, $result2);
+        if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
+            // temporary until view is moved to its own resource
+            $result2 = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schema, $refresh);
+            $result = array_merge($result, $result2);
+        }
         $resources = [];
         foreach ($result as $table) {
             $name = $table->getName(true);
@@ -151,9 +153,11 @@ abstract class BaseDbTableResource extends BaseDbResource
         $schema = $this->request->getParameter(ApiOptions::SCHEMA, '');
         /** @type TableSchema[] $result */
         $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE, $schema, $refresh);
-        // temporary until view is moved to its own resource
-        $result2 = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schema, $refresh);
-        $result = array_merge($result, $result2);
+        if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
+            // temporary until view is moved to its own resource
+            $result2 = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schema, $refresh);
+            $result = array_merge($result, $result2);
+        }
         $resources = [];
         foreach ($result as $table) {
             $access = $this->getPermissions($table->getName(true));
@@ -183,9 +187,11 @@ abstract class BaseDbTableResource extends BaseDbResource
         //  Build the lower-cased table array
         /** @var TableSchema[] $result */
         $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE);
-        // temporary until view is moved to its own resource
-        $result2 = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW);
-        $result = array_merge($result, $result2);
+        if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
+            // temporary until view is moved to its own resource
+            $result2 = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW);
+            $result = array_merge($result, $result2);
+        }
         $tables = [];
         foreach ($result as $table) {
             $tables[strtolower($table->getName(true))] = $table;

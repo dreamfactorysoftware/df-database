@@ -64,9 +64,11 @@ class DbSchemaResource extends BaseDbResource
     {
         /** @type TableSchema[] $result */
         $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE, $schema, $refresh);
-        // temporary until view is moved to its own resource
-        $result2 = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schema, $refresh);
-        $result = array_merge($result, $result2);
+        if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
+            // temporary until view is moved to its own resource
+            $result2 = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schema, $refresh);
+            $result = array_merge($result, $result2);
+        }
         $resources = [];
         foreach ($result as $table) {
             if (!empty($this->getPermissions($table->name))) {
@@ -109,9 +111,11 @@ class DbSchemaResource extends BaseDbResource
 
         /** @type TableSchema[] $result */
         $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE, $schema, $refresh);
-        // temporary until view is moved to its own resource
-        $result2 = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schema, $refresh);
-        $result = array_merge($result, $result2);
+        if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
+            // temporary until view is moved to its own resource
+            $result2 = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schema, $refresh);
+            $result = array_merge($result, $result2);
+        }
         $resources = [];
         foreach ($result as $table) {
             $access = $this->getPermissions($table->name);
