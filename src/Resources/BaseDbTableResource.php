@@ -5,6 +5,7 @@ namespace DreamFactory\Core\Database\Resources;
 use Config;
 use DreamFactory\Core\Components\DataValidator;
 use DreamFactory\Core\Components\Service2ServiceRequest;
+use DreamFactory\Core\Database\Enums\DbFunctionUses;
 use DreamFactory\Core\Database\Schema\RelationSchema;
 use DreamFactory\Core\Database\Schema\TableSchema;
 use DreamFactory\Core\Database\Schema\ColumnSchema;
@@ -21,6 +22,7 @@ use DreamFactory\Core\Exceptions\NotImplementedException;
 use DreamFactory\Core\Exceptions\InternalServerErrorException;
 use DreamFactory\Core\Exceptions\RestException;
 use DreamFactory\Core\Models\Service;
+use DreamFactory\Core\Utility\DataFormatter;
 use DreamFactory\Core\Utility\ResourcesWrapper;
 use DreamFactory\Core\Utility\Session;
 use DreamFactory\Library\Utility\ArrayUtils;
@@ -2512,7 +2514,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         // do we have permission to do so?
         Session::checkServicePermission(Verbs::POST, $service, '_table/' . $schema->getName(true));
 //        if (!empty($service) && ($service !== $this->getServiceName())) {
-            $newIds = $this->handleVirtualRecords($service, '_table/' . $schema->getName(true), Verbs::POST, $records);
+        $newIds = $this->handleVirtualRecords($service, '_table/' . $schema->getName(true), Verbs::POST, $records);
 //        } else {
 //            $tableName = $schema->getName();
 //            $builder = $this->dbConn->table($tableName);
@@ -2541,7 +2543,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         // do we have permission to do so?
         Session::checkServicePermission(Verbs::PUT, $service, '_table/' . $schema->getName(true));
 //        if (!empty($service) && ($service !== $this->getServiceName())) {
-            $this->handleVirtualRecords($service, '_table/' . $schema->getName(true), Verbs::PATCH, $records);
+        $this->handleVirtualRecords($service, '_table/' . $schema->getName(true), Verbs::PATCH, $records);
 //        } else {
 //            $fields = $schema->getColumns(true);
 //            $ssFilters = Session::getServiceFilters(Verbs::PUT, $service, $schema->getName(true));
@@ -2581,8 +2583,8 @@ abstract class BaseDbTableResource extends BaseDbResource
         // do we have permission to do so?
         Session::checkServicePermission(Verbs::PUT, $service, '_table/' . $schema->getName(true));
 //        if (!empty($service) && ($service !== $this->getServiceName())) {
-            $temp = [ApiOptions::IDS => $linkerIds, ApiOptions::ID_FIELD => $linkerField->getName(true)];
-            $this->handleVirtualRecords($service, '_table/' . $schema->getName(true), Verbs::PATCH, $record, $temp);
+        $temp = [ApiOptions::IDS => $linkerIds, ApiOptions::ID_FIELD => $linkerField->getName(true)];
+        $this->handleVirtualRecords($service, '_table/' . $schema->getName(true), Verbs::PATCH, $record, $temp);
 //        } else {
 //            $fields = $schema->getColumns(true);
 //            $ssFilters = Session::getServiceFilters(Verbs::PUT, $service, $schema->getName(true));
@@ -2617,18 +2619,18 @@ abstract class BaseDbTableResource extends BaseDbResource
         // do we have permission to do so?
         Session::checkServicePermission(Verbs::DELETE, $service, '_table/' . $schema->getName(true));
 //        if (!empty($service) && ($service !== $this->getServiceName())) {
-            if (!empty($addCondition) && is_array($addCondition)) {
-                $filter = '(' . $linkerField->getName(true) . ' IN (' . implode(',', $$linkerIds) . '))';
-                foreach ($addCondition as $key => $value) {
-                    $column = $schema->getColumn($key);
-                    $filter .= 'AND (' . $column->getName(true) . ' = ' . $value . ')';
-                }
-                $temp = [ApiOptions::FILTER => $filter];
-            } else {
-                $temp = [ApiOptions::IDS => $linkerIds, ApiOptions::ID_FIELD => $linkerField->getName(true)];
+        if (!empty($addCondition) && is_array($addCondition)) {
+            $filter = '(' . $linkerField->getName(true) . ' IN (' . implode(',', $$linkerIds) . '))';
+            foreach ($addCondition as $key => $value) {
+                $column = $schema->getColumn($key);
+                $filter .= 'AND (' . $column->getName(true) . ' = ' . $value . ')';
             }
+            $temp = [ApiOptions::FILTER => $filter];
+        } else {
+            $temp = [ApiOptions::IDS => $linkerIds, ApiOptions::ID_FIELD => $linkerField->getName(true)];
+        }
 
-            $this->handleVirtualRecords($service, '_table/' . $schema->getName(true), Verbs::DELETE, null, $temp);
+        $this->handleVirtualRecords($service, '_table/' . $schema->getName(true), Verbs::DELETE, null, $temp);
 //        } else {
 //            $builder = $this->dbConn->table($schema->getName());
 //            $builder->whereIn($linkerField->name, $linkerIds);
@@ -2993,14 +2995,92 @@ abstract class BaseDbTableResource extends BaseDbResource
         return time();
     }
 
-    protected function parseValueForSet(
-        $value,
-        /** @noinspection PhpUnusedParameterInspection */
-        $field_info
-    ) {
+    /**
+     * @param mixed        $value
+     * @param ColumnSchema $field_info
+     * @param boolean      $for_update
+     *
+     * @return mixed
+     * @throws \DreamFactory\Core\Exceptions\BadRequestException
+     * @throws \Exception
+     */
+    protected function parseValueForSet($value, $field_info, $for_update = false)
+    {
+        if (!is_null($value)) {
+            switch ($field_info->type) {
+                case DbSimpleTypes::TYPE_BOOLEAN:
+                    $value = filter_var($value, FILTER_VALIDATE_BOOLEAN);
+                    break;
+
+                case DbSimpleTypes::TYPE_INTEGER:
+                case DbSimpleTypes::TYPE_ID:
+                case DbSimpleTypes::TYPE_REF:
+                case DbSimpleTypes::TYPE_USER_ID:
+                case DbSimpleTypes::TYPE_USER_ID_ON_CREATE:
+                case DbSimpleTypes::TYPE_USER_ID_ON_UPDATE:
+                    if (!is_int($value)) {
+                        if (('' === $value) && $field_info->allowNull) {
+                            $value = null;
+                        } elseif (!ctype_digit($value)) {
+                            if (!is_float($value)) { // bigint catch as float
+                                throw new BadRequestException("Field '{$field_info->getName(true)}' must be a valid integer.");
+                            }
+                        } else {
+                            $value = intval($value);
+                        }
+                    }
+                    break;
+
+                case DbSimpleTypes::TYPE_DECIMAL:
+                case DbSimpleTypes::TYPE_DOUBLE:
+                case DbSimpleTypes::TYPE_FLOAT:
+                    break;
+
+                case DbSimpleTypes::TYPE_STRING:
+                case DbSimpleTypes::TYPE_TEXT:
+                    break;
+
+                case DbSimpleTypes::TYPE_DATE:
+                    $cfgFormat = Config::get('df.db_date_format');
+                    $outFormat = 'Y-m-d';
+                    $value = DataFormatter::formatDateTime($outFormat, $value, $cfgFormat);
+                    break;
+
+                case DbSimpleTypes::TYPE_TIME:
+                    $cfgFormat = Config::get('df.db_time_format');
+                    $outFormat = 'H:i:s.u';
+                    $value = DataFormatter::formatDateTime($outFormat, $value, $cfgFormat);
+                    break;
+
+                case DbSimpleTypes::TYPE_DATETIME:
+                    $cfgFormat = Config::get('df.db_datetime_format');
+                    $outFormat = 'Y-m-d H:i:s';
+                    $value = DataFormatter::formatDateTime($outFormat, $value, $cfgFormat);
+                    break;
+
+                case DbSimpleTypes::TYPE_TIMESTAMP:
+                case DbSimpleTypes::TYPE_TIMESTAMP_ON_CREATE:
+                case DbSimpleTypes::TYPE_TIMESTAMP_ON_UPDATE:
+                    $cfgFormat = Config::get('df.db_timestamp_format');
+                    $outFormat = 'Y-m-d H:i:s';
+                    $value = DataFormatter::formatDateTime($outFormat, $value, $cfgFormat);
+                    break;
+            }
+
+            $value = $this->schema->parseValueForSet($value, $field_info);
+        }
+
+        if (!empty($function = $field_info->getDbFunction($for_update ? DbFunctionUses::UPDATE : DbFunctionUses::INSERT))) {
+            $function = str_ireplace('{value}', (is_string($value) ? "'$value'" : $value), $function);
+            $value = $this->dbConn->raw($function);
+        }
+
         return $value;
     }
 
+    /**
+     * @return boolean
+     */
     protected function restrictFieldsToDefined()
     {
         return false;
@@ -3052,7 +3132,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                     default:
                         $name = strtolower($fieldInfo->getName(true));
                         // need to check for virtual or api_read_only validation here.
-                        if ((DbSimpleTypes::TYPE_VIRTUAL === $fieldInfo->type) ||
+                        if ($fieldInfo->isVirtual ||
                             isset($fieldInfo->validation, $fieldInfo->validation['api_read_only'])
                         ) {
                             unset($record[$name]);
@@ -3089,7 +3169,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                             }
 
                             try {
-                                $fieldVal = $this->parseValueForSet($fieldVal, $fieldInfo);
+                                $fieldVal = $this->parseValueForSet($fieldVal, $fieldInfo, $for_update);
                             } catch (ForbiddenException $ex) {
                                 unset($record[$name]);
                                 continue;
@@ -4045,10 +4125,10 @@ abstract class BaseDbTableResource extends BaseDbResource
                     ],
                 ],
                 'get'        => [
-                    'tags'              => [$serviceName],
-                    'summary'           => 'get' . $capitalized . 'Records() - Retrieve one or more records.',
-                    'operationId'       => 'get' . $capitalized . 'Records',
-                    'description'       =>
+                    'tags'        => [$serviceName],
+                    'summary'     => 'get' . $capitalized . 'Records() - Retrieve one or more records.',
+                    'operationId' => 'get' . $capitalized . 'Records',
+                    'description' =>
                         'Set the <b>filter</b> parameter to a SQL WHERE clause (optional native filter accepted in some scenarios) ' .
                         'to limit records returned or leave it blank to return all records up to the maximum limit.<br/> ' .
                         'Set the <b>limit</b> parameter with or without a filter to return a specific amount of records.<br/> ' .
@@ -4061,9 +4141,9 @@ abstract class BaseDbTableResource extends BaseDbResource
                         'Alternatively, to send the <b>ids</b> as posted data, use the getRecordsByPost() POST request.<br/> ' .
                         'Use the <b>fields</b> parameter to limit properties returned for each record. ' .
                         'By default, all fields are returned for all records. ',
-                    'consumes'          => ['application/json', 'application/xml', 'text/csv'],
-                    'produces'          => ['application/json', 'application/xml', 'text/csv'],
-                    'parameters'        => [
+                    'consumes'    => ['application/json', 'application/xml', 'text/csv'],
+                    'produces'    => ['application/json', 'application/xml', 'text/csv'],
+                    'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::FIELDS),
                         ApiOptions::documentOption(ApiOptions::RELATED),
                         ApiOptions::documentOption(ApiOptions::FILTER),
@@ -4081,7 +4161,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                         ApiOptions::documentOption(ApiOptions::ROLLBACK),
                         ApiOptions::documentOption(ApiOptions::FILE),
                     ],
-                    'responses'         => [
+                    'responses'   => [
                         '200'     => [
                             'description' => 'Records',
                             'schema'      => ['$ref' => '#/definitions/RecordsResponse']
@@ -4093,16 +4173,16 @@ abstract class BaseDbTableResource extends BaseDbResource
                     ],
                 ],
                 'post'       => [
-                    'tags'              => [$serviceName],
-                    'summary'           => 'create' . $capitalized . 'Records() - Create one or more records.',
-                    'operationId'       => 'create' . $capitalized . 'Records',
-                    'description'       =>
+                    'tags'        => [$serviceName],
+                    'summary'     => 'create' . $capitalized . 'Records() - Create one or more records.',
+                    'operationId' => 'create' . $capitalized . 'Records',
+                    'description' =>
                         'Posted data should be an array of records wrapped in a <b>record</b> element.<br/> ' .
                         'By default, only the id property of the record is returned on success. ' .
                         'Use <b>fields</b> parameter to return more info.',
-                    'consumes'          => ['application/json', 'application/xml', 'text/csv'],
-                    'produces'          => ['application/json', 'application/xml', 'text/csv'],
-                    'parameters'        =>
+                    'consumes'    => ['application/json', 'application/xml', 'text/csv'],
+                    'produces'    => ['application/json', 'application/xml', 'text/csv'],
+                    'parameters'  =>
                         [
                             [
                                 'name'        => 'body',
@@ -4125,7 +4205,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                                 'in'          => 'header',
                             ],
                         ],
-                    'responses'         => [
+                    'responses'   => [
                         '200'     => [
                             'description' => 'Records',
                             'schema'      => ['$ref' => '#/definitions/RecordsResponse']
@@ -4137,12 +4217,12 @@ abstract class BaseDbTableResource extends BaseDbResource
                     ],
                 ],
                 'put'        => [
-                    'tags'              => [$serviceName],
-                    'summary'           => 'replace' .
+                    'tags'        => [$serviceName],
+                    'summary'     => 'replace' .
                         $capitalized .
                         'Records() - Update (replace) one or more records.',
-                    'operationId'       => 'replace' . $capitalized . 'Records',
-                    'description'       =>
+                    'operationId' => 'replace' . $capitalized . 'Records',
+                    'description' =>
                         'Post data should be an array of records wrapped in a <b>' .
                         $wrapper .
                         '</b> tag.<br/> ' .
@@ -4154,9 +4234,9 @@ abstract class BaseDbTableResource extends BaseDbResource
                         'Filter can be included via URL parameter or included in the posted body.<br/> ' .
                         'By default, only the id property of the record is returned on success. ' .
                         'Use <b>fields</b> parameter to return more info.',
-                    'consumes'          => ['application/json', 'application/xml', 'text/csv'],
-                    'produces'          => ['application/json', 'application/xml', 'text/csv'],
-                    'parameters'        =>
+                    'consumes'    => ['application/json', 'application/xml', 'text/csv'],
+                    'produces'    => ['application/json', 'application/xml', 'text/csv'],
+                    'parameters'  =>
                         [
                             [
                                 'name'        => 'body',
@@ -4174,7 +4254,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                             ApiOptions::documentOption(ApiOptions::ROLLBACK),
                             ApiOptions::documentOption(ApiOptions::FILTER),
                         ],
-                    'responses'         => [
+                    'responses'   => [
                         '200'     => [
                             'description' => 'Records',
                             'schema'      => ['$ref' => '#/definitions/RecordsResponse']
@@ -4186,19 +4266,19 @@ abstract class BaseDbTableResource extends BaseDbResource
                     ],
                 ],
                 'patch'      => [
-                    'tags'              => [$serviceName],
-                    'summary'           => 'update' . $capitalized . 'Records() - Update (patch) one or more records.',
-                    'operationId'       => 'update' . $capitalized . 'Records',
-                    'description'       =>
+                    'tags'        => [$serviceName],
+                    'summary'     => 'update' . $capitalized . 'Records() - Update (patch) one or more records.',
+                    'operationId' => 'update' . $capitalized . 'Records',
+                    'description' =>
                         'Post data should be an array of records containing at least the identifying fields for each record.<br/> ' .
                         'Posted body should be a single record with name-value pairs to update wrapped in a <b>record</b> tag.<br/> ' .
                         'Ids can be included via URL parameter or included in the posted body.<br/> ' .
                         'Filter can be included via URL parameter or included in the posted body.<br/> ' .
                         'By default, only the id property of the record is returned on success. ' .
                         'Use <b>fields</b> parameter to return more info.',
-                    'consumes'          => ['application/json', 'application/xml', 'text/csv'],
-                    'produces'          => ['application/json', 'application/xml', 'text/csv'],
-                    'parameters'        =>
+                    'consumes'    => ['application/json', 'application/xml', 'text/csv'],
+                    'produces'    => ['application/json', 'application/xml', 'text/csv'],
+                    'parameters'  =>
                         [
                             [
                                 'name'        => 'body',
@@ -4216,7 +4296,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                             ApiOptions::documentOption(ApiOptions::ROLLBACK),
                             ApiOptions::documentOption(ApiOptions::FILTER),
                         ],
-                    'responses'         => [
+                    'responses'   => [
                         '200'     => [
                             'description' => 'Records',
                             'schema'      => ['$ref' => '#/definitions/RecordsResponse']
@@ -4228,10 +4308,10 @@ abstract class BaseDbTableResource extends BaseDbResource
                     ],
                 ],
                 'delete'     => [
-                    'tags'              => [$serviceName],
-                    'summary'           => 'delete' . $capitalized . 'Records() - Delete one or more records.',
-                    'operationId'       => 'delete' . $capitalized . 'Records',
-                    'description'       =>
+                    'tags'        => [$serviceName],
+                    'summary'     => 'delete' . $capitalized . 'Records() - Delete one or more records.',
+                    'operationId' => 'delete' . $capitalized . 'Records',
+                    'description' =>
                         'Set the <b>ids</b> parameter to a list of record identifying (primary key) values to delete specific records.<br/> ' .
                         'Alternatively, to delete records by a large list of ids, pass the ids in the <b>body</b>.<br/> ' .
                         'By default, only the id property of the record is returned on success, use <b>fields</b> to return more info. ' .
@@ -4241,9 +4321,9 @@ abstract class BaseDbTableResource extends BaseDbResource
                         'By default, only the id property of the record is returned on success, use <b>fields</b> to return more info. ' .
                         'Set the <b>body</b> to an array of records, minimally including the identifying fields, to delete specific records.<br/> ' .
                         'By default, only the id property of the record is returned on success, use <b>fields</b> to return more info. ',
-                    'consumes'          => ['application/json', 'application/xml', 'text/csv'],
-                    'produces'          => ['application/json', 'application/xml', 'text/csv'],
-                    'parameters'        =>
+                    'consumes'    => ['application/json', 'application/xml', 'text/csv'],
+                    'produces'    => ['application/json', 'application/xml', 'text/csv'],
+                    'parameters'  =>
                         [
                             [
                                 'name'        => 'body',
@@ -4261,7 +4341,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                             ApiOptions::documentOption(ApiOptions::FILTER),
                             ApiOptions::documentOption(ApiOptions::FORCE),
                         ],
-                    'responses'         => [
+                    'responses'   => [
                         '200'     => [
                             'description' => 'Records',
                             'schema'      => ['$ref' => '#/definitions/RecordsResponse']
@@ -4291,21 +4371,21 @@ abstract class BaseDbTableResource extends BaseDbResource
                     ],
                 ],
                 'get'        => [
-                    'tags'              => [$serviceName],
-                    'summary'           => 'get' . $capitalized . 'Record() - Retrieve one record by identifier.',
-                    'operationId'       => 'get' . $capitalized . 'Record',
-                    'description'       =>
+                    'tags'        => [$serviceName],
+                    'summary'     => 'get' . $capitalized . 'Record() - Retrieve one record by identifier.',
+                    'operationId' => 'get' . $capitalized . 'Record',
+                    'description' =>
                         'Use the <b>fields</b> parameter to limit properties that are returned. ' .
                         'By default, all fields are returned.',
-                    'consumes'          => ['application/json', 'application/xml', 'text/csv'],
-                    'produces'          => ['application/json', 'application/xml', 'text/csv'],
-                    'parameters'        => [
+                    'consumes'    => ['application/json', 'application/xml', 'text/csv'],
+                    'produces'    => ['application/json', 'application/xml', 'text/csv'],
+                    'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::FIELDS),
                         ApiOptions::documentOption(ApiOptions::RELATED),
                         ApiOptions::documentOption(ApiOptions::ID_FIELD),
                         ApiOptions::documentOption(ApiOptions::ID_TYPE),
                     ],
-                    'responses'         => [
+                    'responses'   => [
                         '200'     => [
                             'description' => 'Record',
                             'schema'      => ['$ref' => '#/definitions/RecordResponse']
@@ -4317,17 +4397,17 @@ abstract class BaseDbTableResource extends BaseDbResource
                     ],
                 ],
                 'put'        => [
-                    'tags'              => [$serviceName],
-                    'summary'           => 'replace' .
+                    'tags'        => [$serviceName],
+                    'summary'     => 'replace' .
                         $capitalized .
                         'Record() - Replace the content of one record by identifier.',
-                    'operationId'       => 'replace' . $capitalized . 'Record',
-                    'description'       =>
+                    'operationId' => 'replace' . $capitalized . 'Record',
+                    'description' =>
                         'Post data should be an array of fields for a single record.<br/> ' .
                         'Use the <b>fields</b> parameter to return more properties. By default, the id is returned.',
-                    'consumes'          => ['application/json', 'application/xml', 'text/csv'],
-                    'produces'          => ['application/json', 'application/xml', 'text/csv'],
-                    'parameters'        => [
+                    'consumes'    => ['application/json', 'application/xml', 'text/csv'],
+                    'produces'    => ['application/json', 'application/xml', 'text/csv'],
+                    'parameters'  => [
                         [
                             'name'        => 'body',
                             'description' => 'Data containing name-value pairs of the replacement record.',
@@ -4340,7 +4420,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                         ApiOptions::documentOption(ApiOptions::ID_FIELD),
                         ApiOptions::documentOption(ApiOptions::ID_TYPE),
                     ],
-                    'responses'         => [
+                    'responses'   => [
                         '200'     => [
                             'description' => 'Record',
                             'schema'      => ['$ref' => '#/definitions/RecordResponse']
@@ -4352,17 +4432,17 @@ abstract class BaseDbTableResource extends BaseDbResource
                     ],
                 ],
                 'patch'      => [
-                    'tags'              => [$serviceName],
-                    'summary'           => 'update' .
+                    'tags'        => [$serviceName],
+                    'summary'     => 'update' .
                         $capitalized .
                         'Record() - Update (patch) one record by identifier.',
-                    'operationId'       => 'update' . $capitalized . 'Record',
-                    'description'       =>
+                    'operationId' => 'update' . $capitalized . 'Record',
+                    'description' =>
                         'Post data should be an array of fields for a single record.<br/> ' .
                         'Use the <b>fields</b> parameter to return more properties. By default, the id is returned.',
-                    'consumes'          => ['application/json', 'application/xml', 'text/csv'],
-                    'produces'          => ['application/json', 'application/xml', 'text/csv'],
-                    'parameters'        => [
+                    'consumes'    => ['application/json', 'application/xml', 'text/csv'],
+                    'produces'    => ['application/json', 'application/xml', 'text/csv'],
+                    'parameters'  => [
                         [
                             'name'        => 'body',
                             'description' => 'Data containing name-value pairs of the fields to update.',
@@ -4375,7 +4455,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                         ApiOptions::documentOption(ApiOptions::ID_FIELD),
                         ApiOptions::documentOption(ApiOptions::ID_TYPE),
                     ],
-                    'responses'         => [
+                    'responses'   => [
                         '200'     => [
                             'description' => 'Record',
                             'schema'      => ['$ref' => '#/definitions/RecordResponse']
@@ -4387,19 +4467,19 @@ abstract class BaseDbTableResource extends BaseDbResource
                     ],
                 ],
                 'delete'     => [
-                    'tags'              => [$serviceName],
-                    'summary'           => 'delete' . $capitalized . 'Record() - Delete one record by identifier.',
-                    'operationId'       => 'delete' . $capitalized . 'Record',
-                    'description'       => 'Use the <b>fields</b> parameter to return more deleted properties. By default, the id is returned.',
-                    'consumes'          => ['application/json', 'application/xml', 'text/csv'],
-                    'produces'          => ['application/json', 'application/xml', 'text/csv'],
-                    'parameters'        => [
+                    'tags'        => [$serviceName],
+                    'summary'     => 'delete' . $capitalized . 'Record() - Delete one record by identifier.',
+                    'operationId' => 'delete' . $capitalized . 'Record',
+                    'description' => 'Use the <b>fields</b> parameter to return more deleted properties. By default, the id is returned.',
+                    'consumes'    => ['application/json', 'application/xml', 'text/csv'],
+                    'produces'    => ['application/json', 'application/xml', 'text/csv'],
+                    'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::FIELDS),
                         ApiOptions::documentOption(ApiOptions::RELATED),
                         ApiOptions::documentOption(ApiOptions::ID_FIELD),
                         ApiOptions::documentOption(ApiOptions::ID_TYPE),
                     ],
-                    'responses'         => [
+                    'responses'   => [
                         '200'     => [
                             'description' => 'Record',
                             'schema'      => ['$ref' => '#/definitions/RecordResponse']

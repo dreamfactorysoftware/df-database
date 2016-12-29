@@ -156,6 +156,8 @@ trait DbSchemaExtras
                         'validation',
                         'client_info',
                         'db_function',
+                        'is_virtual',
+                        'is_aggregate',
                     ]));
             }
         }

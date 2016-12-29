@@ -1444,8 +1444,12 @@ class DbSchemaResource extends BaseDbResource
             return $result;
         }
 
-        // temporary until views gets its own resource
-        return $this->parent->getSchema()->doesResourceExist(DbResourceTypes::TYPE_VIEW, $name, $returnName);
+        if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
+            // temporary until view gets its own resource
+            return $this->parent->getSchema()->doesResourceExist(DbResourceTypes::TYPE_VIEW, $name, $returnName);
+        }
+
+        return false;
     }
 
 

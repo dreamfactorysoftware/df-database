@@ -70,7 +70,7 @@ class DbVirtualRelationship extends Migration
                     unset($each['ref_fields']);
                     $new[] = $each;
                 }
-                $result = \DreamFactory\Core\Models\DbVirtualRelationship::bulkCreate($new);
+                $result = \DreamFactory\Core\Database\Models\DbVirtualRelationship::bulkCreate($new);
                 Log::debug('Post-migrating VFK to Virtual Relationships: ' . print_r($result, true));
             }
         }

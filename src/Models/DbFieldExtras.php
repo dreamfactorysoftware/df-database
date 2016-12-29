@@ -19,6 +19,8 @@ use Illuminate\Database\Query\Builder;
  * @property string  $extra_type
  * @property string  $client_info
  * @property array   $db_function
+ * @property boolean $is_virtual
+ * @property boolean $is_aggregate
  * @method static Builder|DbFieldExtras whereId($value)
  * @method static Builder|DbFieldExtras whereServiceId($value)
  * @method static Builder|DbFieldExtras whereTable($value)
@@ -41,13 +43,17 @@ class DbFieldExtras extends BaseSystemModel
         'extra_type',
         'client_info',
         'db_function',
+        'is_virtual',
+        'is_aggregate',
     ];
 
     protected $casts = [
-        'id'                  => 'integer',
-        'service_id'          => 'integer',
-        'picklist'            => 'array',
-        'validation'          => 'array',
-        'db_function'         => 'array',
+        'id'           => 'integer',
+        'service_id'   => 'integer',
+        'is_virtual'   => 'boolean',
+        'is_aggregate' => 'boolean',
+        'picklist'     => 'array',
+        'validation'   => 'array',
+        'db_function'  => 'array',
     ];
 }

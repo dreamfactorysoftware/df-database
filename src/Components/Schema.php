@@ -4,6 +4,8 @@ namespace DreamFactory\Core\Database\Components;
 use DreamFactory\Core\Contracts\CacheInterface;
 use DreamFactory\Core\Contracts\DbExtrasInterface;
 use DreamFactory\Core\Contracts\SchemaInterface;
+use DreamFactory\Core\Database\Enums\DbFunctionUses;
+use DreamFactory\Core\Database\Enums\FunctionTypes;
 use DreamFactory\Core\Database\Schema\ColumnSchema;
 use DreamFactory\Core\Database\Schema\FunctionSchema;
 use DreamFactory\Core\Database\Schema\ParameterSchema;
@@ -18,6 +20,7 @@ use DreamFactory\Core\Exceptions\InternalServerErrorException;
 use DreamFactory\Core\Exceptions\NotFoundException;
 use DreamFactory\Core\Exceptions\NotImplementedException;
 use DreamFactory\Core\Models\Service;
+use DreamFactory\Library\Utility\Inflector;
 use DreamFactory\Library\Utility\Scalar;
 use Illuminate\Database\Connection;
 use Illuminate\Database\ConnectionInterface;
@@ -116,6 +119,8 @@ class Schema implements SchemaInterface
         'validation',
         'client_info',
         'db_function',
+        'is_virtual',
+        'is_aggregate',
     ];
 
     /**
@@ -789,12 +794,18 @@ class Schema implements SchemaInterface
                 $this->tablesDropped($name);
                 break;
             case DbResourceTypes::TYPE_TABLE_FIELD:
-                if (!is_array($name) || (2 > count($name))) {
-                    throw new \InvalidArgumentException('Invalid resource name for type.');
+                /** @var ColumnSchema $resource */
+                if ($resource = $this->getResource($type, $name)) {
+                    if (!is_array($name) || (2 > count($name))) {
+                        throw new \InvalidArgumentException('Invalid resource name for type.');
+                    }
+
+                    if ($resource->isVirtual) {
+                        $this->dropColumn($name[0], $name[1]);
+                    }
+                    $this->fieldsDropped($name[0], $name[1]);
                 }
 
-                $this->dropColumn($name[0], $name[1]);
-                $this->fieldsDropped($name[0], $name[1]);
                 break;
             case DbResourceTypes::TYPE_TABLE_RELATIONSHIP:
                 if (!is_array($name) || (2 > count($name))) {
@@ -836,7 +847,7 @@ class Schema implements SchemaInterface
             $rts = $constraint['referenced_table_schema'];
             $rtn = $constraint['referenced_table_name'];
             $rcn = $constraint['referenced_column_name'];
-            if ((0 == strcasecmp($tn, $table->tableName)) && (0 == strcasecmp($ts, $schema))) {
+            if ((0 == strcasecmp($tn, $table->resourceName)) && (0 == strcasecmp($ts, $schema))) {
                 $name = ($rts == $defaultSchema) ? $rtn : $rts . '.' . $rtn;
                 $column = $table->getColumn($cn);
                 $table->foreignKeys[strtolower($cn)] = [$name, $rcn];
@@ -861,7 +872,7 @@ class Schema implements SchemaInterface
                     ]);
 
                 $table->addRelation($relation);
-            } elseif ((0 == strcasecmp($rtn, $table->tableName)) && (0 == strcasecmp($rts, $schema))) {
+            } elseif ((0 == strcasecmp($rtn, $table->resourceName)) && (0 == strcasecmp($rts, $schema))) {
                 $name = ($ts == $defaultSchema) ? $tn : $ts . '.' . $tn;
                 $relation =
                     new RelationSchema([
@@ -887,7 +898,7 @@ class Schema implements SchemaInterface
                             $rts2 = $constraint2['referenced_table_schema'];
                             $rtn2 = $constraint2['referenced_table_name'];
                             $rcn2 = $constraint2['referenced_column_name'];
-                            if ((0 != strcasecmp($rts2, $schema)) || (0 != strcasecmp($rtn2, $table->tableName))
+                            if ((0 != strcasecmp($rts2, $schema)) || (0 != strcasecmp($rtn2, $table->resourceName))
                             ) {
                                 $name2 = ($rts2 == $schema) ? $rtn2 : $rts2 . '.' . $rtn2;
                                 // not same as parent, i.e. via reference back to self
@@ -1049,22 +1060,44 @@ class Schema implements SchemaInterface
         if (!empty($extras = $this->getSchemaExtrasForFields($table->name))) {
             foreach ($extras as $extra) {
                 if (!empty($columnName = array_get($extra, 'field'))) {
+                    unset($extra['field']);
+                    if (!empty($type = array_get($extra, 'extra_type'))) {
+                        $extra['type'] = $type;
+                        // upgrade old entries
+                        if ('virtual' === $type) {
+                            $extra['is_virtual'] = true;
+                            if (!empty($functionInfo = array_get($extra, 'db_function'))) {
+                                $type = $extra['type'] = array_get($functionInfo, 'type', DbSimpleTypes::TYPE_STRING);
+                                if ($function = array_get($functionInfo, 'function')) {
+                                    $extra['db_function'] = [
+                                        [
+                                            'use'           => [DbFunctionUses::SELECT],
+                                            'function'      => $function,
+                                            'function_type' => FunctionTypes::DATABASE,
+                                        ]
+                                    ];
+                                }
+                                if ($aggregate = array_get($functionInfo, 'aggregate')) {
+                                    $extra['is_aggregate'] = $aggregate;
+                                }
+                            }
+                        }
+                    }
+                    unset($extra['extra_type']);
+
+                    if (!empty($alias = array_get($extra, 'alias'))) {
+                        $extra['quotedAlias'] = $this->quoteColumnName($alias);
+                    }
+
                     if (null !== $c = $table->getColumn($columnName)) {
                         $c->fill($extra);
                         // may need to reevaluate internal types
                         $c->phpType = static::extractPhpType($c->type);
-                        $c->pdoType = static::extractPdoType($c->type);
-                    } elseif (!static::PROVIDES_FIELD_SCHEMA && !empty($type = array_get($extra, 'extra_type'))) {
-                        $extra['name'] = $extra['field'];
-                        unset($extra['field']);
-                        $extra['type'] = $type;
-                        $extra['allow_null'] = true; // make sure it is not required
+                    } elseif (!empty($type) && (array_get($extra, 'is_virtual') || !static::PROVIDES_FIELD_SCHEMA)) {
+                        $extra['name'] = $columnName;
                         $c = new ColumnSchema($extra);
-                        $table->addColumn($c);
-                    } elseif (DbSimpleTypes::TYPE_VIRTUAL === array_get($extra, 'extra_type')) {
-                        $extra['name'] = $extra['field'];
-                        $extra['allow_null'] = true; // make sure it is not required
-                        $c = new ColumnSchema($extra);
+                        // may need to reevaluate internal types
+                        $c->phpType = static::extractPhpType($c->type);
                         $table->addColumn($c);
                     }
                 }
@@ -1432,8 +1465,8 @@ class Schema implements SchemaInterface
         $procedures = [];
         /** @type ProcedureSchema $procNameSchema */
         foreach ($this->getProcedureNames($schema) as $procNameSchema) {
-            if (($procedure = $this->getProcedure($procNameSchema->publicName, $refresh)) !== null) {
-                $procedures[$procNameSchema->publicName] = $procedure;
+            if (($procedure = $this->getProcedure($procNameSchema->name, $refresh)) !== null) {
+                $procedures[$procNameSchema->name] = $procedure;
             }
         }
 
@@ -1537,17 +1570,17 @@ MYSQL;
         $names = [];
         foreach ($rows as $row) {
             $row = array_change_key_case((array)$row, CASE_UPPER);
-            $name = array_get($row, 'ROUTINE_NAME');
+            $resourceName = array_get($row, 'ROUTINE_NAME');
             $schemaName = $schema;
-            $internalName = $schemaName . '.' . $name;
-            $publicName = ($addSchema) ? $internalName : $name;
-            $quotedName = $this->quoteTableName($schemaName) . '.' . $this->quoteTableName($name);
+            $internalName = $schemaName . '.' . $resourceName;
+            $name = ($addSchema) ? $internalName : $resourceName;
+            $quotedName = $this->quoteTableName($schemaName) . '.' . $this->quoteTableName($resourceName);
             $returnType = array_get($row, 'DATA_TYPE');
             if (!empty($returnType) && (0 !== strcasecmp('void', $returnType))) {
                 $returnType = static::extractSimpleType($returnType);
             }
-            $settings = compact('schemaName', 'name', 'publicName', 'internalName', 'quotedName', 'returnType');
-            $names[strtolower($publicName)] =
+            $settings = compact('schemaName', 'resourceName', 'name', 'internalName', 'quotedName', 'returnType');
+            $names[strtolower($name)] =
                 ('PROCEDURE' === $type) ? new ProcedureSchema($settings) : new FunctionSchema($settings);
         }
 
@@ -1666,8 +1699,8 @@ MYSQL;
         $functions = [];
         /** @type FunctionSchema $funcNameSchema */
         foreach ($this->getFunctionNames($schema) as $funcNameSchema) {
-            if (($procedure = $this->getFunction($funcNameSchema->publicName)) !== null) {
-                $functions[$funcNameSchema->publicName] = $procedure;
+            if (($procedure = $this->getFunction($funcNameSchema->name)) !== null) {
+                $functions[$funcNameSchema->name] = $procedure;
             }
         }
 
@@ -1884,11 +1917,16 @@ MYSQL;
     protected function cleanClientField(array &$field)
     {
         $field = array_change_key_case($field, CASE_LOWER);
-        if (empty(array_get($field, 'name'))) {
+        if (empty($name = array_get($field, 'name'))) {
             throw new \Exception("Invalid schema detected - no name element.");
         }
+        if (!empty($label = array_get($field, 'label'))) {
+            if ($label === Inflector::camelize($name, '_', true)) {
+                unset($field['label']); // no need to create an entry just for the same label
+            }
+        }
 
-        $picklist = (isset($field['picklist'])) ? $field['picklist'] : [];
+        $picklist = array_get($field, 'picklist');
         if (!empty($picklist) && !is_array($picklist)) {
             // accept comma delimited from client side
             $field['picklist'] = array_map('trim', explode(',', trim($picklist, ',')));
@@ -1904,7 +1942,8 @@ MYSQL;
             'is_index',
             'is_primary_key',
             'is_foreign_key',
-            'virtual',
+            'is_virtual',
+            'is_aggregate',
         ];
         foreach ($booleanFieldNames as $name) {
             if (isset($field[$name])) {
@@ -1914,13 +1953,32 @@ MYSQL;
 
         // tighten up type info
         if (isset($field['type'])) {
-            $type = strtolower((string)array_get($field, 'type', ''));
+            $type = strtolower((string)array_get($field, 'type'));
             switch ($type) {
                 case 'pk':
                     $type = DbSimpleTypes::TYPE_ID;
                     break;
                 case 'fk':
                     $type = DbSimpleTypes::TYPE_REF;
+                    break;
+                case 'virtual':
+                    // upgrade old virtual field definitions
+                    $field['is_virtual'] = true;
+                    if (!empty($functionInfo = array_get($field, 'db_function'))) {
+                        $type = array_get($functionInfo, 'type', DbSimpleTypes::TYPE_STRING);
+                        if ($function = array_get($functionInfo, 'function')) {
+                            $field['db_function'] = [
+                                [
+                                    'use'           => [DbFunctionUses::SELECT],
+                                    'function'      => $function,
+                                    'function_type' => FunctionTypes::DATABASE,
+                                ]
+                            ];
+                        }
+                        if ($aggregate = array_get($functionInfo, 'aggregate')) {
+                            $field['is_aggregate'] = $aggregate;
+                        }
+                    }
                     break;
             }
             $field['type'] = $type;
@@ -2018,9 +2076,8 @@ MYSQL;
             $extraNew = array_only($field, $extraTags);
             $field = array_except($field, $extraTags);
 
-            $type = strtolower((string)array_get($field, 'type', ''));
-            $virtual = ((DbSimpleTypes::TYPE_VIRTUAL == $type) || array_get($field, 'virtual'));
-            if (!static::PROVIDES_FIELD_SCHEMA || $virtual) {
+            $type = strtolower((string)array_get($field, 'type'));
+            if (!static::PROVIDES_FIELD_SCHEMA || array_get($extraNew, 'is_virtual', false)) {
                 // no need to build what the db doesn't support, use extras and bail
                 $extraNew['extra_type'] = $type;
             } else {
@@ -2167,14 +2224,14 @@ MYSQL;
                     $extraNew['picklist'] = $picklist;
                 }
 
-                $validation = (isset($field['validation'])) ? $field['validation'] : [];
-                $oldValidation = (is_array($oldField->validation) ? $oldField->validation : []);
+                $validation = (array)array_get($field, 'validation');
+                $oldValidation = (array)$oldField->validation;
                 if (json_encode($validation) !== json_encode($oldValidation)) {
                     $extraNew['validation'] = $validation;
                 }
 
-                $dbFunction = (isset($field['db_function'])) ? $field['db_function'] : [];
-                $oldFunction = (is_array($oldField->dbFunction) ? $oldField->dbFunction : []);
+                $dbFunction = (array)array_get($field, 'db_function');
+                $oldFunction = (array)$oldField->dbFunction;
                 if (json_encode($dbFunction) !== json_encode($oldFunction)) {
                     $extraNew['db_function'] = $dbFunction;
                 }
@@ -2208,9 +2265,8 @@ MYSQL;
                 }
 
                 $type = strtolower((string)array_get($field, 'type', ''));
-                $virtual = ((DbSimpleTypes::TYPE_VIRTUAL == $type) || array_get($field, 'virtual'));
-                if (!static::PROVIDES_FIELD_SCHEMA || $virtual) {
-                    if ($oldField && (DbSimpleTypes::TYPE_VIRTUAL !== $oldField->type)) {
+                if (!static::PROVIDES_FIELD_SCHEMA || array_get($extraNew, 'is_virtual', false)) {
+                    if ($oldField && !$oldField->isVirtual) {
                         throw new \Exception("Field '$name' already exists as non-virtual in table '{$table_schema->name}'.");
                     }
                     // no need to build what the db doesn't support, use extras and bail
@@ -2292,8 +2348,7 @@ MYSQL;
                 $field = array_except($field, $extraTags);
 
                 $type = strtolower((string)array_get($field, 'type'));
-                $virtual = ((DbSimpleTypes::TYPE_VIRTUAL == $type) || array_get($field, 'virtual'));
-                if (!static::PROVIDES_FIELD_SCHEMA || $virtual) {
+                if (!static::PROVIDES_FIELD_SCHEMA || array_get($extraNew, 'is_virtual', false)) {
                     // no need to build what the db doesn't support, use extras and bail
                     $extraNew['extra_type'] = $type;
                 } else {
@@ -2387,7 +2442,7 @@ MYSQL;
                     }
                 }
                 if (!$found) {
-                    $virtual = ((DbSimpleTypes::TYPE_VIRTUAL == $oldField->type)); // || $oldField->virtual);
+                    $virtual = $oldField->isVirtual;
                     if (!static::PROVIDES_FIELD_SCHEMA || $virtual) {
                         $dropExtras[$table_schema->name][] = $oldField->name;
                     } else {
@@ -3007,17 +3062,6 @@ MYSQL;
     }
 
     /**
-     * @param $value
-     * @param $field_info
-     *
-     * @return mixed
-     */
-    public function parseValueForSet($value, $field_info)
-    {
-        return $value;
-    }
-
-    /**
      * @param mixed  $value
      * @param string $type
      *
@@ -3424,7 +3468,7 @@ MYSQL;
     {
         $result = 0;
         $tableInfo = $this->getTable($table);
-        if (($columnInfo = $tableInfo->getColumn($column)) && (DbSimpleTypes::TYPE_VIRTUAL !== $columnInfo->type)) {
+        if (($columnInfo = $tableInfo->getColumn($column)) && !$columnInfo->isVirtual) {
             $sql = "ALTER TABLE " . $tableInfo->quotedName . " DROP COLUMN " . $columnInfo->quotedName;
             $result = $this->connection->statement($sql);
         }
@@ -4112,28 +4156,6 @@ MYSQL;
     }
 
     /**
-     * @param \DreamFactory\Core\Database\Schema\ColumnSchema $column
-     *
-     * @return array
-     */
-    public function getPdoBinding($column)
-    {
-        switch ($column->dbType) {
-            case null:
-                $type = $column->getDbFunctionType();
-                $pdoType = $this->extractPdoType($type);
-                $phpType = $type;
-                break;
-            default:
-                $pdoType = $column->pdoType;
-                $phpType = $column->phpType;
-                break;
-        }
-
-        return ['name' => $column->getName(true), 'pdo_type' => $pdoType, 'php_type' => $phpType];
-    }
-
-    /**
      * Extracts the DreamFactory simple type from DB type.
      *
      * @param ColumnSchema $column
@@ -4146,7 +4168,6 @@ MYSQL;
 
         $column->type = static::extractSimpleType($dbType, $column->size, $column->scale);
         $column->phpType = static::extractPhpType($column->type);
-        $column->pdoType = static::extractPdoType($column->type);
     }
 
     /**
@@ -4241,86 +4262,13 @@ MYSQL;
     }
 
     /**
-     * @param ColumnSchema $field
-     * @param bool         $as_quoted_string
+     * @param $value
+     * @param $field_info
      *
-     * @return \Illuminate\Database\Query\Expression|string
+     * @return mixed
      */
-    public function parseFieldForSelect($field, $as_quoted_string = false)
+    public function parseValueForSet($value, $field_info)
     {
-        switch ($field->dbType) {
-            case null:
-                return $this->connection->raw($field->getDbFunction() . ' AS ' . $this->quoteColumnName($field->getName(true)));
-            default :
-                $out = ($as_quoted_string) ? $field->quotedName : $field->name;
-                if (!empty($field->alias)) {
-                    $out .= ' AS ' . $field->alias;
-                }
-
-                return $out;
-        }
-    }
-
-    /**
-     * @param ColumnSchema $field
-     * @param bool         $as_quoted_string
-     *
-     * @return \Illuminate\Database\Query\Expression|string
-     */
-    public function parseFieldForFilter($field, $as_quoted_string = false)
-    {
-        switch ($field->dbType) {
-            case null:
-                return $this->connection->raw($field->getDbFunction());
-        }
-
-        return ($as_quoted_string) ? $field->quotedName : $field->name;
-    }
-
-    /**
-     * @param $type
-     *
-     * @return null|string
-     */
-    public function determinePhpConversionType($type)
-    {
-        switch ($type) {
-            case DbSimpleTypes::TYPE_BOOLEAN:
-                return 'bool';
-
-            case DbSimpleTypes::TYPE_INTEGER:
-            case DbSimpleTypes::TYPE_ID:
-            case DbSimpleTypes::TYPE_REF:
-            case DbSimpleTypes::TYPE_USER_ID:
-            case DbSimpleTypes::TYPE_USER_ID_ON_CREATE:
-            case DbSimpleTypes::TYPE_USER_ID_ON_UPDATE:
-                return 'int';
-
-            case DbSimpleTypes::TYPE_DECIMAL:
-            case DbSimpleTypes::TYPE_DOUBLE:
-            case DbSimpleTypes::TYPE_FLOAT:
-                return 'float';
-
-            case DbSimpleTypes::TYPE_STRING:
-            case DbSimpleTypes::TYPE_TEXT:
-                return 'string';
-
-            // special checks
-            case DbSimpleTypes::TYPE_DATE:
-                return 'date';
-
-            case DbSimpleTypes::TYPE_TIME:
-                return 'time';
-
-            case DbSimpleTypes::TYPE_DATETIME:
-                return 'datetime';
-
-            case DbSimpleTypes::TYPE_TIMESTAMP:
-            case DbSimpleTypes::TYPE_TIMESTAMP_ON_CREATE:
-            case DbSimpleTypes::TYPE_TIMESTAMP_ON_UPDATE:
-                return 'timestamp';
-        }
-
-        return null;
+        return $value;
     }
 }
