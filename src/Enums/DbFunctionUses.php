@@ -13,8 +13,8 @@ class DbFunctionUses extends FactoryEnum
     //	Constants
     //*************************************************************************
 
-    const SELECT = 'select';
-    const FILTER = 'filter';
-    const INSERT = 'insert';
-    const UPDATE = 'update';
+    const SELECT = 'SELECT';
+    const FILTER = 'FILTER';
+    const INSERT = 'INSERT';
+    const UPDATE = 'UPDATE';
 }

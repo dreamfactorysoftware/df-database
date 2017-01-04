@@ -2240,16 +2240,20 @@ MYSQL;
                 $field = array_except($field, $extraTags);
 
                 $extraTags[] = 'default';
-                $settingsNew = array_diff_assoc(
-                    array_except($field, $extraTags),
-                    array_except($oldField->toArray(), $extraTags)
-                );
+                $extraTags[] = 'native';
+                $settingsNew = array_diff_assoc($field, array_except($oldField->toArray(), $extraTags));
 
                 // may be an array due to expressions
                 if (array_key_exists('default', $field)) {
                     $default = $field['default'];
                     if ($default !== $oldField->defaultValue) {
                         $settingsNew['default'] = $default;
+                    }
+                }
+                if (array_key_exists('native', $field)) {
+                    $default = $field['native'];
+                    if ($default !== $oldField->native) {
+                        $settingsNew['native'] = $default;
                     }
                 }
 
@@ -3424,6 +3428,9 @@ MYSQL;
             // todo change table name, has issue with references
         }
 
+        if ((false === strpos($tableName, '.')) && !empty($namingSchema = $this->getNamingSchema())) {
+            $tableName = $namingSchema . '.' . $tableName;
+        }
         // update column types
         if (isset($changes['columns']) && is_array($changes['columns'])) {
             foreach ($changes['columns'] as $name => $definition) {
