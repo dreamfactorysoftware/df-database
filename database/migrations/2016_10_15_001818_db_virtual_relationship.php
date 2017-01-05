@@ -13,11 +13,10 @@ class DbVirtualRelationship extends Migration
     public function up()
     {
         $driver = Schema::getConnection()->getDriverName();
-        $sqlsrv = (('sqlsrv' === $driver) || ('dblib' === $driver));
         // Even though we take care of this scenario in the code,
         // SQL Server does not allow potential cascading loops,
         // so set the default no action and clear out created/modified by another user when deleting a user.
-        $userOnDelete = ($sqlsrv ? 'no action' : 'set null');
+        $userOnDelete = (('sqlsrv' === $driver) ? 'no action' : 'set null');
         Schema::create(
             'db_virtual_relationship',
             function (Blueprint $t) use ($userOnDelete) {
