@@ -814,7 +814,7 @@ class Schema implements SchemaInterface
                 }
                 $table = $this->getTable($name[0]);
                 if ($resource = $table->getRelation($name[1])) {
-                    if (!$resource->isVirtual) {
+                    if ($resource->isVirtual) {
                         $this->removeSchemaVirtualRelationships($name[0], [$resource->toArray()]);
                     } else {
                         $this->dropRelationship($table->quotedName, $resource);
