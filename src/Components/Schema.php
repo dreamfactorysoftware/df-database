@@ -790,18 +790,19 @@ class Schema implements SchemaInterface
             case DbResourceTypes::TYPE_SCHEMA:
                 break;
             case DbResourceTypes::TYPE_TABLE:
-                $this->dropTable($name);
-                $this->tablesDropped($name);
+                if ($resource = $this->getTable($name)) {
+                    $this->dropTable($resource->quotedName);
+                    $this->tablesDropped($name);
+                }
                 break;
             case DbResourceTypes::TYPE_TABLE_FIELD:
-                /** @var ColumnSchema $resource */
-                if ($resource = $this->getResource($type, $name)) {
-                    if (!is_array($name) || (2 > count($name))) {
-                        throw new \InvalidArgumentException('Invalid resource name for type.');
-                    }
-
-                    if ($resource->isVirtual) {
-                        $this->dropColumn($name[0], $name[1]);
+                if (!is_array($name) || (2 > count($name))) {
+                    throw new \InvalidArgumentException('Invalid resource name for type.');
+                }
+                $table = $this->getTable($name[0]);
+                if ($resource = $table->getColumn($name[1])) {
+                    if (static::PROVIDES_FIELD_SCHEMA && !$resource->isVirtual) {
+                        $this->dropColumns($table->quotedName, $resource->quotedName);
                     }
                     $this->fieldsDropped($name[0], $name[1]);
                 }
@@ -811,9 +812,15 @@ class Schema implements SchemaInterface
                 if (!is_array($name) || (2 > count($name))) {
                     throw new \InvalidArgumentException('Invalid resource name for type.');
                 }
-
-                $this->dropRelationship($name[0], $name[1]);
-                $this->removeSchemaExtrasForRelated($name[0], $name[1]);
+                $table = $this->getTable($name[0]);
+                if ($resource = $table->getRelation($name[1])) {
+                    if (!$resource->isVirtual) {
+                        $this->removeSchemaVirtualRelationships($name[0], [$resource->toArray()]);
+                    } else {
+                        $this->dropRelationship($table->quotedName, $resource);
+                    }
+                    $this->removeSchemaExtrasForRelated($name[0], $name[1]);
+                }
                 break;
             case DbResourceTypes::TYPE_PROCEDURE:
                 break;
@@ -2069,12 +2076,9 @@ MYSQL;
             $this->cleanClientField($field);
             $name = array_get($field, 'name');
 
-            // extras
-            $extraTags = $this->fieldExtras;
-
             // clean out extras
-            $extraNew = array_only($field, $extraTags);
-            $field = array_except($field, $extraTags);
+            $extraNew = array_only($field, $this->fieldExtras);
+            $field = array_except($field, $this->fieldExtras);
 
             $type = strtolower((string)array_get($field, 'type'));
             if (!static::PROVIDES_FIELD_SCHEMA || array_get($extraNew, 'is_virtual', false)) {
@@ -2198,9 +2202,6 @@ MYSQL;
             $this->cleanClientField($field);
             $name = array_get($field, 'name');
 
-            // extras
-            $extraTags = $this->fieldExtras;
-
             /** @type ColumnSchema $oldField */
             if ($oldField = $table_schema->getColumn($name)) {
                 // UPDATE
@@ -2208,52 +2209,54 @@ MYSQL;
                     throw new \Exception("Field '$name' already exists in table '{$table_schema->name}'.");
                 }
 
+                $oldArray = $oldField->toArray();
                 $oldForeignKey = $oldField->isForeignKey;
 
-                $extraNew = array_only($field, $extraTags);
-                $extraOld = array_only($oldField->toArray(), $extraTags);
-                $noDiff = ['picklist', 'validation', 'db_function'];
-                $extraNew = array_diff_assoc(array_except($extraNew, $noDiff), array_except($extraOld, $noDiff));
+                $diffFields = array_diff($this->fieldExtras, ['picklist', 'validation', 'db_function']);
+                $extraNew = array_diff_assoc(array_only($field, $diffFields), array_only($oldArray, $diffFields));
 
-                $picklist = (array)array_get($field, 'picklist');
-                $oldPicklist = (array)$oldField->picklist;
-                if ((count($picklist) !== count($oldPicklist)) ||
-                    !empty(array_diff($picklist, $oldPicklist)) ||
-                    !empty(array_diff($oldPicklist, $picklist))
-                ) {
-                    $extraNew['picklist'] = $picklist;
+                if (array_key_exists('picklist', $field)) {
+                    $picklist = (array)array_get($field, 'picklist');
+                    $oldPicklist = (array)$oldField->picklist;
+                    if ((count($picklist) !== count($oldPicklist)) ||
+                        !empty(array_diff($picklist, $oldPicklist)) ||
+                        !empty(array_diff($oldPicklist, $picklist))
+                    ) {
+                        $extraNew['picklist'] = $picklist;
+                    }
                 }
 
-                $validation = (array)array_get($field, 'validation');
-                $oldValidation = (array)$oldField->validation;
-                if (json_encode($validation) !== json_encode($oldValidation)) {
-                    $extraNew['validation'] = $validation;
+                if (array_key_exists('validation', $field)) {
+                    $validation = (array)array_get($field, 'validation');
+                    $oldValidation = (array)$oldField->validation;
+                    if (json_encode($validation) !== json_encode($oldValidation)) {
+                        $extraNew['validation'] = $validation;
+                    }
                 }
 
-                $dbFunction = (array)array_get($field, 'db_function');
-                $oldFunction = (array)$oldField->dbFunction;
-                if (json_encode($dbFunction) !== json_encode($oldFunction)) {
-                    $extraNew['db_function'] = $dbFunction;
+                if (array_key_exists('db_function', $field)) {
+                    $dbFunction = (array)array_get($field, 'db_function');
+                    $oldFunction = (array)$oldField->dbFunction;
+                    if (json_encode($dbFunction) !== json_encode($oldFunction)) {
+                        $extraNew['db_function'] = $dbFunction;
+                    }
                 }
 
                 // clean out extras
-                $field = array_except($field, $extraTags);
-
-                $extraTags[] = 'default';
-                $extraTags[] = 'native';
-                $settingsNew = array_diff_assoc($field, array_except($oldField->toArray(), $extraTags));
+                $noDiff = array_merge($this->fieldExtras, ['default', 'native']);
+                $settingsNew = array_diff_assoc(array_except($field, $noDiff), array_except($oldArray, $noDiff));
 
                 // may be an array due to expressions
-                if (array_key_exists('default', $field)) {
-                    $default = $field['default'];
+                if (array_key_exists('default', $settingsNew)) {
+                    $default = $settingsNew['default'];
                     if ($default !== $oldField->defaultValue) {
                         $settingsNew['default'] = $default;
                     }
                 }
-                if (array_key_exists('native', $field)) {
-                    $default = $field['native'];
-                    if ($default !== $oldField->native) {
-                        $settingsNew['native'] = $default;
+                if (array_key_exists('native', $settingsNew)) {
+                    $native = $settingsNew['native'];
+                    if ($native !== $oldField->native) {
+                        $settingsNew['native'] = $native;
                     }
                 }
 
@@ -2348,8 +2351,8 @@ MYSQL;
                 // CREATE
 
                 // clean out extras
-                $extraNew = array_only($field, $extraTags);
-                $field = array_except($field, $extraTags);
+                $extraNew = array_only($field, $this->fieldExtras);
+                $field = array_except($field, $this->fieldExtras);
 
                 $type = strtolower((string)array_get($field, 'type'));
                 if (!static::PROVIDES_FIELD_SCHEMA || array_get($extraNew, 'is_virtual', false)) {
@@ -2446,12 +2449,10 @@ MYSQL;
                     }
                 }
                 if (!$found) {
-                    $virtual = $oldField->isVirtual;
-                    if (!static::PROVIDES_FIELD_SCHEMA || $virtual) {
-                        $dropExtras[$table_schema->name][] = $oldField->name;
-                    } else {
+                    if (static::PROVIDES_FIELD_SCHEMA && !$oldField->isVirtual) {
                         $dropColumns[] = $oldField->name;
                     }
+                    $dropExtras[$table_schema->name][] = $oldField->name;
                 }
             }
         }
@@ -2548,8 +2549,6 @@ MYSQL;
         foreach ($related as $relation) {
             $this->cleanClientRelation($relation);
             $name = array_get($relation, 'name');
-
-            // extras
 
             /** @type RelationSchema $oldRelation */
             if ($oldRelation = $table_schema->getRelation($name)) {
@@ -2794,10 +2793,9 @@ MYSQL;
     /**
      * Builds a SQL statement for adding a new DB column.
      *
-     * @param string $table  the table that the new column will be added to. The table name will be properly quoted by
-     *                       the method.
-     * @param string $column the name of the new column. The name will be properly quoted by the method.
-     * @param string $type   the column type. The {@link getColumnType} method will be invoked to convert abstract
+     * @param string $table  The quoted table that the new column will be added to.
+     * @param string $column The name of the new column. The name will be properly quoted by the method.
+     * @param string $type   The column type. The {@link getColumnType} method will be invoked to convert abstract
      *                       column type (if any) into the physical one. Anything that is not recognized as abstract
      *                       type will be kept in the generated SQL. For example, 'string' will be turned into
      *                       'varchar(255)', while 'string not null' will become 'varchar(255) not null'.
@@ -2807,7 +2805,7 @@ MYSQL;
     public function addColumn($table, $column, $type)
     {
         return <<<MYSQL
-ALTER TABLE {$this->quoteTableName($table)} ADD {$this->quoteColumnName($column)} {$this->getColumnType($type)};
+ALTER TABLE $table ADD COLUMN {$this->quoteColumnName($column)} {$this->getColumnType($type)};
 MYSQL;
     }
 
@@ -2822,13 +2820,9 @@ MYSQL;
      */
     public function renameColumn($table, $name, $newName)
     {
-        return
-            "ALTER TABLE " .
-            $this->quoteTableName($table) .
-            " RENAME COLUMN " .
-            $this->quoteColumnName($name) .
-            " TO " .
-            $this->quoteColumnName($newName);
+        return <<<MYSQL
+ALTER TABLE $table RENAME COLUMN {$this->quoteColumnName($name)} TO {$this->quoteColumnName($newName)};
+MYSQL;
     }
 
     /**
@@ -2847,15 +2841,9 @@ MYSQL;
      */
     public function alterColumn($table, $column, $definition)
     {
-        return
-            'ALTER TABLE ' .
-            $this->quoteTableName($table) .
-            ' CHANGE ' .
-            $this->quoteColumnName($column) .
-            ' ' .
-            $this->quoteColumnName($column) .
-            ' ' .
-            $this->getColumnType($definition);
+        return <<<MYSQL
+ALTER TABLE $table CHANGE {$this->quoteColumnName($column)} {$this->quoteColumnName($column)} {$this->getColumnType($definition)};
+MYSQL;
     }
 
     /**
@@ -3258,7 +3246,7 @@ MYSQL;
                         $results = array_merge($results, $related);
                     }
 
-                    $this->updateTable($table, $results);
+                    $this->updateTable($tableSchema, array_merge($table, $results));
                 } else {
                     \Log::debug('Creating table: ' . $tableName);
 
@@ -3412,96 +3400,79 @@ MYSQL;
     }
 
     /**
-     * @param string $table
+     * @param TableSchema $tableSchema
      * @param array  $changes
      *
      * @throws \Exception
      */
-    protected function updateTable($table, $changes)
+    protected function updateTable($tableSchema, $changes)
     {
-        if (empty($tableName = array_get($table, 'name'))) {
-            throw new \Exception("No valid name exist in the received table schema.");
-        }
-
         //  Is there a name update
         if (!empty($changes['new_name'])) {
             // todo change table name, has issue with references
         }
 
-        if ((false === strpos($tableName, '.')) && !empty($namingSchema = $this->getNamingSchema())) {
-            $tableName = $namingSchema . '.' . $tableName;
-        }
         // update column types
         if (isset($changes['columns']) && is_array($changes['columns'])) {
             foreach ($changes['columns'] as $name => $definition) {
-                $this->connection->statement($this->addColumn($tableName, $name, $definition));
+                $this->connection->statement($this->addColumn($tableSchema->quotedName, $name, $definition));
             }
         }
         if (isset($changes['alter_columns']) && is_array($changes['alter_columns'])) {
             foreach ($changes['alter_columns'] as $name => $definition) {
-                $this->connection->statement($this->alterColumn($tableName, $name, $definition));
+                $this->connection->statement($this->alterColumn($tableSchema->quotedName, $name, $definition));
             }
         }
-        if (isset($changes['drop_columns']) && is_array($changes['drop_columns'])) {
-            foreach ($changes['drop_columns'] as $name) {
-                $this->connection->statement($this->dropColumn($tableName, $name));
-            }
+        if (isset($changes['drop_columns']) && is_array($changes['drop_columns']) && !empty($changes['drop_columns'])) {
+            $this->connection->statement($this->dropColumns($tableSchema->quotedName, $changes['drop_columns']));
         }
     }
 
     /**
      * Builds and executes a SQL statement for dropping a DB table.
      *
-     * @param string $table the table to be dropped. The name will be properly quoted by the method.
+     * @param string $table The internal table name to be dropped.
      *
      * @return integer 0 is always returned. See {@link http://php.net/manual/en/pdostatement.rowcount.php} for more
      *                 information.
      */
     public function dropTable($table)
     {
-        $tableInfo = $this->getTable($table);
-        $sql = "DROP TABLE " . $tableInfo->quotedName;
-
-        return $this->connection->statement($sql);
+        return $this->connection->statement("DROP TABLE $table");
     }
 
     /**
-     * @param $table
-     * @param $column
+     * @param string       $table
+     * @param string|array $columns
      *
      * @return bool|int
      */
-    public function dropColumn($table, $column)
+    public function dropColumns($table, $columns)
     {
-        $result = 0;
-        $tableInfo = $this->getTable($table);
-        if (($columnInfo = $tableInfo->getColumn($column)) && !$columnInfo->isVirtual) {
-            $sql = "ALTER TABLE " . $tableInfo->quotedName . " DROP COLUMN " . $columnInfo->quotedName;
-            $result = $this->connection->statement($sql);
+        $commands = [];
+        foreach ((array)$columns as $column) {
+            if (!empty($column)) {
+                $commands[] = "DROP COLUMN " . $column;
+            }
         }
 
-        return $result;
+        if (!empty($commands)) {
+            return $this->connection->statement("ALTER TABLE $table " . implode(',', $commands));
+        }
+
+        return false;
     }
 
     /**
-     * @param $table
+     * @param string $table
      * @param $relationship
      *
      * @return bool|int
      */
     public function dropRelationship($table, $relationship)
     {
-        $result = 0;
-        $tableInfo = $this->getTable($table);
-        if ($relationInfo = $tableInfo->getRelation($relationship)) {
-            if ($relationInfo->isVirtual) {
-                $this->removeSchemaVirtualRelationships($table, [$relationInfo->toArray()]);
-            } else {
-                // todo anything we can do for database foreign keys here?
-            }
-        }
-
-        return $result;
+        // todo anything we can do for database foreign keys here?
+        return false;
     }
 
     /**
