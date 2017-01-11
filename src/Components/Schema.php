@@ -2210,8 +2210,6 @@ MYSQL;
                 }
 
                 $oldArray = $oldField->toArray();
-                $oldForeignKey = $oldField->isForeignKey;
-
                 $diffFields = array_diff($this->fieldExtras, ['picklist', 'validation', 'db_function']);
                 $extraNew = array_diff_assoc(array_only($field, $diffFields), array_only($oldArray, $diffFields));
 
@@ -2305,6 +2303,7 @@ MYSQL;
                         if ($this->allowsSeparateForeignConstraint()) {
                             // will get to it later, $refTable may not be there
                             $keyName = $this->makeConstraintName('fk', $table_schema->internalName, $name);
+                            $oldForeignKey = $oldField->isForeignKey;
                             if (!$oldForeignKey) {
                                 $references[] = [
                                     'name'      => $keyName,
@@ -2557,9 +2556,9 @@ MYSQL;
                     throw new \Exception("Relation '$name' already exists in table '{$table_schema->name}'.");
                 }
 
+                $oldArray = $oldRelation->toArray();
                 $extraNew = array_only($relation, $this->relatedExtras);
-                $extraOld = array_only($oldRelation->toArray(), $this->relatedExtras);
-
+                $extraOld = array_only($oldArray, $this->relatedExtras);
                 if (!empty($extraNew = array_diff_assoc($extraNew, $extraOld))) {
                     // if all empty, delete the extras entry, otherwise update
                     $combined = array_merge($extraOld, $extraNew);
@@ -2578,9 +2577,9 @@ MYSQL;
                 // only virtual
                 if (boolval(array_get($relation, 'is_virtual'))) {
                     // clean out extras
-                    $relation = array_except($relation, $this->relatedExtras);
-                    $old = array_except($oldRelation->toArray(), $this->relatedExtras);
-                    if (!empty(array_diff_assoc($relation, $old))) {
+                    $noDiff = array_merge($this->relatedExtras, ['native']);
+                    $relation = array_except($relation, $noDiff);
+                    if (!empty(array_diff_assoc($relation, array_except($oldArray, $noDiff)))) {
                         $relation['table'] = $table_schema->name;
                         $virtuals[] = $relation;
                     }
