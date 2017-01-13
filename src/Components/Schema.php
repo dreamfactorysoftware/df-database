@@ -1103,6 +1103,7 @@ class Schema implements SchemaInterface
                     } elseif (!empty($type) && (array_get($extra, 'is_virtual') || !static::PROVIDES_FIELD_SCHEMA)) {
                         $extra['name'] = $columnName;
                         $c = new ColumnSchema($extra);
+                        $c->quotedName = $this->quoteColumnName($c->name);
                         // may need to reevaluate internal types
                         $c->phpType = static::extractPhpType($c->type);
                         $table->addColumn($c);
@@ -1849,7 +1850,11 @@ MYSQL;
             $prefix = '';
         }
 
-        return $prefix . ($name === '*' ? $name : $this->quoteSimpleColumnName($name));
+        if ('*' !== $name) {
+            $name = $this->quoteSimpleColumnName($name);
+        }
+
+        return $prefix . $name;
     }
 
     /**
@@ -2846,15 +2851,18 @@ MYSQL;
     }
 
     /**
-     * @param $prefix
-     * @param $table
-     * @param $column
+     * @param string      $prefix
+     * @param string      $table
+     * @param string|null $column
      *
      * @return string
      */
-    public function makeConstraintName($prefix, $table, $column)
+    public function makeConstraintName($prefix, $table, $column = null)
     {
-        $temp = $prefix . '_' . str_replace('.', '_', $table) . '_' . $column;
+        $temp = $prefix . '_' . str_replace('.', '_', $table);
+        if (!empty($column)) {
+            $temp .= '_' . $column;
+        }
 
         return $temp;
     }
@@ -3400,7 +3408,7 @@ MYSQL;
 
     /**
      * @param TableSchema $tableSchema
-     * @param array  $changes
+     * @param array       $changes
      *
      * @throws \Exception
      */
@@ -3464,7 +3472,7 @@ MYSQL;
 
     /**
      * @param string $table
-     * @param $relationship
+     * @param        $relationship
      *
      * @return bool|int
      */
