@@ -6,7 +6,7 @@ use DreamFactory\Core\Contracts\RequestHandlerInterface;
 use DreamFactory\Core\Contracts\SchemaInterface;
 use DreamFactory\Core\Enums\ApiOptions;
 use DreamFactory\Core\Resources\BaseRestResource;
-use DreamFactory\Core\Services\BaseDbService;
+use DreamFactory\Core\Database\Services\BaseDbService;
 use Illuminate\Database\ConnectionInterface;
 
 abstract class BaseDbResource extends BaseRestResource
