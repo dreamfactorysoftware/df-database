@@ -23,7 +23,7 @@
     }
   ],
   "require":     {
-    "dreamfactory/df-core": "~0.6.0"
+    "dreamfactory/df-core": "~0.7.0"
   },
   "require-dev": {
     "phpunit/phpunit": "@stable"
