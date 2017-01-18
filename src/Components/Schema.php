@@ -2274,9 +2274,9 @@ MYSQL;
                     continue;
                 }
 
-                $type = strtolower((string)array_get($field, 'type', ''));
-                if (!static::PROVIDES_FIELD_SCHEMA || array_get($extraNew, 'is_virtual', false)) {
-                    if ($oldField && !$oldField->isVirtual) {
+                $type = strtolower((string)array_get($field, 'type'));
+                if (!static::PROVIDES_FIELD_SCHEMA || array_get($extraNew, 'is_virtual', false) || $oldField->isVirtual) {
+                    if (!$oldField->isVirtual) {
                         throw new \Exception("Field '$name' already exists as non-virtual in table '{$table_schema->name}'.");
                     }
                     // no need to build what the db doesn't support, use extras and bail
