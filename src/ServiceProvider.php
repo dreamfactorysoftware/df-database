@@ -1,5 +1,5 @@
 <?php
-namespace DreamFactory\Core\Providers;
+namespace DreamFactory\Core\Database;
 
 class ServiceProvider extends \Illuminate\Support\ServiceProvider
 {
