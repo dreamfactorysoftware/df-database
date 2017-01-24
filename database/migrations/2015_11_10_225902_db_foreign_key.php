@@ -33,8 +33,8 @@ class DbForeignKey extends Migration
                 $t->boolean('always_fetch')->default(0);
                 $t->boolean('flatten')->default(0);
                 $t->boolean('flatten_drop_prefix')->default(0);
-                $t->timestamp('created_date');
-                $t->timestamp('last_modified_date');
+                $t->timestamp('created_date')->useCurrent();
+                $t->timestamp('last_modified_date')->useCurrent();
                 $t->integer('created_by_id')->unsigned()->nullable();
                 $t->foreign('created_by_id')->references('id')->on('user')->onDelete($userOnDelete);
                 $t->integer('last_modified_by_id')->unsigned()->nullable();

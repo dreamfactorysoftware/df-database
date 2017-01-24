@@ -37,8 +37,8 @@ class DbVirtualRelationship extends Migration
                 $t->string('junction_table')->nullable();
                 $t->string('junction_field')->nullable();
                 $t->string('junction_ref_field')->nullable();
-                $t->timestamp('created_date');
-                $t->timestamp('last_modified_date');
+                $t->timestamp('created_date')->useCurrent();
+                $t->timestamp('last_modified_date')->useCurrent();
                 $t->integer('created_by_id')->unsigned()->nullable();
                 $t->foreign('created_by_id')->references('id')->on('user')->onDelete($userOnDelete);
                 $t->integer('last_modified_by_id')->unsigned()->nullable();
@@ -57,7 +57,7 @@ class DbVirtualRelationship extends Migration
                 'ref_fields',
                 'ref_on_update',
                 'ref_on_delete',
-            ]))
+            ])->all())
             ) {
                 Log::debug('Pre-migrating VFK to Virtual Relationships: ' . count($old));
                 // change ref_fields to ref_field

@@ -8,6 +8,7 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 - DF-967 Made the error message 'No record(s) detected in request.' more verbose.
 
 ### Fixed
+- Fixed migrations with timestamp fields due to Laravel issue #11518 with some MySQL versions
 
 ## [0.1.3] - 2017-01-20
 ### Fixed
