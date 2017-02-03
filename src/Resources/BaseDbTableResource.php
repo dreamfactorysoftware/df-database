@@ -251,13 +251,13 @@ abstract class BaseDbTableResource extends BaseDbResource
             // merge in possible payload options
             foreach ($optionNames as $key => $value) {
                 if (!array_key_exists($value, $options)) {
-                    if (array_key_exists($value, $payload)) {
+                    if (is_array($payload) && array_key_exists($value, $payload)) {
                         $updateOptions = true;
                         $options[$value] = $payload[$value];
                     } elseif (!empty($otherNames = ApiOptions::getAliases($value))) {
                         foreach ($otherNames as $other) {
                             if (!array_key_exists($other, $options)) {
-                                if (array_key_exists($other, $payload)) {
+                                if (is_array($payload) && array_key_exists($other, $payload)) {
                                     $updateOptions = true;
                                     $options[$value] = $payload[$other];
                                 }
@@ -816,9 +816,19 @@ abstract class BaseDbTableResource extends BaseDbResource
     {
         $records = static::validateAsArray($record, null, true, 'The request contains no valid record fields.');
 
-        $results = $this->createRecords($table, $records, $extras);
+        try {
+            $results = $this->createRecords($table, $records, $extras);
 
-        return $results[0];
+            return $results[0];
+        } catch (RestException $ex) {
+            $context = (array)$ex->getContext();
+            $msg = current(array_get($context, 'resource'));
+            $ex->setContext(null);
+            $ex->setMessage($msg);
+            throw $ex;
+        } catch (\Exception $ex) {
+            throw new InternalServerErrorException("Failed to create records from '$table'.\n" . $ex->getMessage());
+        }
     }
 
     /**
@@ -931,9 +941,19 @@ abstract class BaseDbTableResource extends BaseDbResource
     {
         $records = static::validateAsArray($record, null, true, 'The request contains no valid record fields.');
 
-        $results = $this->updateRecords($table, $records, $extras);
+        try {
+            $results = $this->updateRecords($table, $records, $extras);
 
-        return array_get($results, 0, []);
+            return array_get($results, 0, []);
+        } catch (RestException $ex) {
+            $context = (array)$ex->getContext();
+            $msg = current(array_get($context, 'resource'));
+            $ex->setContext(null);
+            $ex->setMessage($msg);
+            throw $ex;
+        } catch (\Exception $ex) {
+            throw new InternalServerErrorException("Failed to update records from '$table'.\n" . $ex->getMessage());
+        }
     }
 
     /**
@@ -1093,9 +1113,19 @@ abstract class BaseDbTableResource extends BaseDbResource
     {
         $record = static::validateAsArray($record, null, false, 'The request contains no valid record fields.');
 
-        $results = $this->updateRecordsByIds($table, $record, $id, $extras);
+        try {
+            $results = $this->updateRecordsByIds($table, $record, $id, $extras);
 
-        return array_get($results, 0, []);
+            return array_get($results, 0, []);
+        } catch (RestException $ex) {
+            $context = (array)$ex->getContext();
+            $msg = current(array_get($context, 'resource'));
+            $ex->setContext(null);
+            $ex->setMessage($msg);
+            throw $ex;
+        } catch (\Exception $ex) {
+            throw new InternalServerErrorException("Failed to update records from '$table'.\n" . $ex->getMessage());
+        }
     }
 
     /**
@@ -1208,9 +1238,19 @@ abstract class BaseDbTableResource extends BaseDbResource
     {
         $records = static::validateAsArray($record, null, true, 'The request contains no valid record fields.');
 
-        $results = $this->patchRecords($table, $records, $extras);
+        try {
+            $results = $this->patchRecords($table, $records, $extras);
 
-        return array_get($results, 0, []);
+            return array_get($results, 0, []);
+        } catch (RestException $ex) {
+            $context = (array)$ex->getContext();
+            $msg = current(array_get($context, 'resource'));
+            $ex->setContext(null);
+            $ex->setMessage($msg);
+            throw $ex;
+        } catch (\Exception $ex) {
+            throw new InternalServerErrorException("Failed to patch records from '$table'.\n" . $ex->getMessage());
+        }
     }
 
     /**
@@ -1368,9 +1408,19 @@ abstract class BaseDbTableResource extends BaseDbResource
     {
         $record = static::validateAsArray($record, null, false, 'The request contains no valid record fields.');
 
-        $results = $this->patchRecordsByIds($table, $record, $id, $extras);
+        try {
+            $results = $this->patchRecordsByIds($table, $record, $id, $extras);
 
-        return array_get($results, 0, []);
+            return array_get($results, 0, []);
+        } catch (RestException $ex) {
+            $context = (array)$ex->getContext();
+            $msg = current(array_get($context, 'resource'));
+            $ex->setContext(null);
+            $ex->setMessage($msg);
+            throw $ex;
+        } catch (\Exception $ex) {
+            throw new InternalServerErrorException("Failed to patch records from '$table'.\n" . $ex->getMessage());
+        }
     }
 
     /**
@@ -1413,9 +1463,19 @@ abstract class BaseDbTableResource extends BaseDbResource
     {
         $record = static::validateAsArray($record, null, false, 'The request contains no valid record fields.');
 
-        $results = $this->deleteRecords($table, [$record], $extras);
+        try {
+            $results = $this->deleteRecords($table, [$record], $extras);
 
-        return array_get($results, 0, []);
+            return array_get($results, 0, []);
+        } catch (RestException $ex) {
+            $context = (array)$ex->getContext();
+            $msg = current(array_get($context, 'resource'));
+            $ex->setContext(null);
+            $ex->setMessage($msg);
+            throw $ex;
+        } catch (\Exception $ex) {
+            throw new InternalServerErrorException("Failed to delete records from '$table'.\n" . $ex->getMessage());
+        }
     }
 
     /**
@@ -1562,9 +1622,19 @@ abstract class BaseDbTableResource extends BaseDbResource
      */
     public function deleteRecordById($table, $id, $extras = [])
     {
-        $results = $this->deleteRecordsByIds($table, $id, $extras);
+        try {
+            $results = $this->deleteRecordsByIds($table, $id, $extras);
 
-        return array_get($results, 0, []);
+            return array_get($results, 0, []);
+        } catch (RestException $ex) {
+            $context = (array)$ex->getContext();
+            $msg = current(array_get($context, 'resource'));
+            $ex->setContext(null);
+            $ex->setMessage($msg);
+            throw $ex;
+        } catch (\Exception $ex) {
+            throw new InternalServerErrorException("Failed to delete records from '$table'.\n" . $ex->getMessage());
+        }
     }
 
     /**
@@ -1640,9 +1710,19 @@ abstract class BaseDbTableResource extends BaseDbResource
     {
         $record = static::validateAsArray($record, null, false, 'The request contains no valid record fields.');
 
-        $results = $this->retrieveRecords($table, [$record], $extras);
+        try {
+            $results = $this->retrieveRecords($table, [$record], $extras);
 
-        return array_get($results, 0, []);
+            return array_get($results, 0, []);
+        } catch (RestException $ex) {
+            $context = (array)$ex->getContext();
+            $msg = current(array_get($context, 'resource'));
+            $ex->setContext(null);
+            $ex->setMessage($msg);
+            throw $ex;
+        } catch (\Exception $ex) {
+            throw new InternalServerErrorException("Failed to retrieve records from '$table'.\n" . $ex->getMessage());
+        }
     }
 
     /**
@@ -1660,12 +1740,10 @@ abstract class BaseDbTableResource extends BaseDbResource
         $fields = array_get($extras, ApiOptions::FIELDS);
         $idFields = array_get($extras, ApiOptions::ID_FIELD);
         $idTypes = array_get($extras, ApiOptions::ID_TYPE);
-        $isSingle = (1 == count($ids));
-        $continue = ($isSingle) ? false : Scalar::boolval(array_get($extras, ApiOptions::CONTINUES, false));
+        $continue = Scalar::boolval(array_get($extras, ApiOptions::CONTINUES));
 
         $this->initTransaction($table, $idFields, $idTypes);
 
-        $extras['single'] = $isSingle;
         $extras['id_fields'] = $idFields;
         $extras['require_more'] = static::requireMoreFields($fields, $idFields);
 
@@ -1679,26 +1757,18 @@ abstract class BaseDbTableResource extends BaseDbResource
                             print_r($id, true));
                     }
 
-                    $result = $this->addToTransaction(null, $id, $extras, false, $continue, $isSingle);
+                    $result = $this->addToTransaction(null, $id, $extras, false, $continue);
                     if (isset($result)) {
                         // operation performed, take output
                         $out[$index] = $result;
                     }
                 } catch (\Exception $ex) {
-                    if ($isSingle || !$continue) {
-                        if (0 !== $index) {
-                            // first error, don't worry about batch just throw it
-                            // mark last error and index for batch results
-                            $errors[] = $index;
-                            $out[$index] = $ex->getMessage();
-                        }
-
-                        throw $ex;
-                    }
-
                     // mark error and index for batch results
                     $errors[] = $index;
                     $out[$index] = $ex->getMessage();
+                    if (!$continue) {
+                        throw $ex;
+                    }
                 }
             }
 
@@ -1745,9 +1815,19 @@ abstract class BaseDbTableResource extends BaseDbResource
      */
     public function retrieveRecordById($table, $id, $extras = [])
     {
-        $results = $this->retrieveRecordsByIds($table, $id, $extras);
+        try {
+            $results = $this->retrieveRecordsByIds($table, $id, $extras);
 
-        return array_get($results, 0, []);
+            return array_get($results, 0, []);
+        } catch (RestException $ex) {
+            $context = (array)$ex->getContext();
+            $msg = current(array_get($context, 'resource'));
+            $ex->setContext(null);
+            $ex->setMessage($msg);
+            throw $ex;
+        } catch (\Exception $ex) {
+            throw new InternalServerErrorException("Failed to retrieve records from '$table'.\n" . $ex->getMessage());
+        }
     }
 
     /**
