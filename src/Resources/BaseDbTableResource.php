@@ -16,6 +16,7 @@ use DreamFactory\Core\Enums\DbResourceTypes;
 use DreamFactory\Core\Enums\DbSimpleTypes;
 use DreamFactory\Core\Enums\VerbsMask;
 use DreamFactory\Core\Exceptions\BadRequestException;
+use DreamFactory\Core\Exceptions\BatchException;
 use DreamFactory\Core\Exceptions\ForbiddenException;
 use DreamFactory\Core\Exceptions\NotFoundException;
 use DreamFactory\Core\Exceptions\NotImplementedException;
@@ -734,74 +735,41 @@ abstract class BaseDbTableResource extends BaseDbResource
         $extras['require_more'] = static::requireMoreFields($fields, $idFields);
 
         $out = [];
-        $errors = [];
-        try {
-            foreach ($records as $index => $record) {
-                try {
-                    if (false === $id = static::checkForIds($record, $this->tableIdsInfo, $extras, true)) {
-                        throw new BadRequestException("Required id field(s) not found in record $index: " .
-                            print_r($record, true));
-                    }
+        $errors = false;
+        foreach ($records as $index => $record) {
+            try {
+                if (false === $id = static::checkForIds($record, $this->tableIdsInfo, $extras, true)) {
+                    throw new BadRequestException("Required id field(s) not found in record $index: " .
+                        print_r($record, true));
+                }
 
-                    $result = $this->addToTransaction($record, $id, $extras, $rollback, $continue, $isSingle);
-                    if (isset($result)) {
-                        // operation performed, take output
-                        $out[$index] = $result;
-                    }
-                } catch (\Exception $ex) {
-                    if ($isSingle || $rollback || !$continue) {
-                        if (0 !== $index) {
-                            // first error, don't worry about batch just throw it
-                            // mark last error and index for batch results
-                            $errors[] = $index;
-                            $out[$index] = $ex->getMessage();
-                        }
-
-                        throw $ex;
-                    }
-
-                    // mark error and index for batch results
-                    $errors[] = $index;
-                    $out[$index] = $ex->getMessage();
+                $out[$index] = $this->addToTransaction($record, $id, $extras, $rollback, $continue, $isSingle);
+            } catch (\Exception $ex) {
+                $errors = true;
+                $out[$index] = $ex;
+                if ($rollback || !$continue) {
+                    break;
                 }
             }
+        }
 
-            if (!empty($errors)) {
-                throw new BadRequestException();
-            }
-
-            $result = $this->commitTransaction($extras);
-            if (isset($result)) {
-                // operation performed, take output, override earlier
-                $out = $result;
-            }
-
-            return $out;
-        } catch (\Exception $ex) {
-            $msg = $ex->getMessage();
-
-            $context = null;
-            if (!empty($errors)) {
-                $wrapper = ResourcesWrapper::getWrapper();
-                $context = ['error' => $errors, $wrapper => $out];
-                $msg = 'Batch Error: Not all records could be created.';
-            }
+        if ($errors) {
+            $msg = 'Batch Error: Not all records could be created.';
 
             if ($rollback) {
                 $this->rollbackTransaction();
-
                 $msg .= " All changes rolled back.";
             }
 
-            if ($ex instanceof RestException) {
-                $context = (empty($temp)) ? $context : $temp;
-                $ex->setContext($context);
-                $ex->setMessage($msg);
-                throw $ex;
-            }
-
-            throw new InternalServerErrorException("Failed to create records in '$table'.\n$msg", null, null, $context);
+            throw new BatchException($out, $msg);
         }
+
+        if ($result = $this->commitTransaction($extras)) {
+            // operation performed, take output, override earlier
+            $out = $result;
+        }
+
+        return $out;
     }
 
     /**
@@ -820,12 +788,13 @@ abstract class BaseDbTableResource extends BaseDbResource
             $results = $this->createRecords($table, $records, $extras);
 
             return $results[0];
-        } catch (RestException $ex) {
-            $context = (array)$ex->getContext();
-            $msg = current(array_get($context, 'resource'));
-            $ex->setContext(null);
-            $ex->setMessage($msg);
-            throw $ex;
+        } catch (BatchException $ex) {
+            $response = $ex->pickResponse(0);
+            if ($response instanceof \Exception) {
+                throw $response;
+            }
+
+            return $response;
         } catch (\Exception $ex) {
             throw new InternalServerErrorException("Failed to create records from '$table'.\n" . $ex->getMessage());
         }
@@ -859,74 +828,41 @@ abstract class BaseDbTableResource extends BaseDbResource
         $extras['require_more'] = static::requireMoreFields($fields, $idFields);
 
         $out = [];
-        $errors = [];
-        try {
-            foreach ($records as $index => $record) {
-                try {
-                    if (false === $id = static::checkForIds($record, $this->tableIdsInfo, $extras)) {
-                        throw new BadRequestException("Required id field(s) not found in record $index: " .
-                            print_r($record, true));
-                    }
+        $errors = false;
+        foreach ($records as $index => $record) {
+            try {
+                if (false === $id = static::checkForIds($record, $this->tableIdsInfo, $extras)) {
+                    throw new BadRequestException("Required id field(s) not found in record $index: " .
+                        print_r($record, true));
+                }
 
-                    $result = $this->addToTransaction($record, $id, $extras, $rollback, $continue, $isSingle);
-                    if (isset($result)) {
-                        // operation performed, take output
-                        $out[$index] = $result;
-                    }
-                } catch (\Exception $ex) {
-                    if ($isSingle || $rollback || !$continue) {
-                        if (0 !== $index) {
-                            // first error, don't worry about batch just throw it
-                            // mark last error and index for batch results
-                            $errors[] = $index;
-                            $out[$index] = $ex->getMessage();
-                        }
-
-                        throw $ex;
-                    }
-
-                    // mark error and index for batch results
-                    $errors[] = $index;
-                    $out[$index] = $ex->getMessage();
+                $out[$index] = $this->addToTransaction($record, $id, $extras, $rollback, $continue, $isSingle);
+            } catch (\Exception $ex) {
+                // mark error and index for batch results
+                $errors = true;
+                $out[$index] = $ex;
+                if ($rollback || !$continue) {
+                    break;
                 }
             }
+        }
 
-            if (!empty($errors)) {
-                throw new BadRequestException();
-            }
-
-            $result = $this->commitTransaction($extras);
-            if (isset($result)) {
-                $out = $result;
-            }
-
-            return $out;
-        } catch (\Exception $ex) {
-            $msg = $ex->getMessage();
-
-            $context = null;
-            if (!empty($errors)) {
-                $wrapper = ResourcesWrapper::getWrapper();
-                $context = ['error' => $errors, $wrapper => $out];
-                $msg = 'Batch Error: Not all records could be updated.';
-            }
+        if ($errors) {
+            $msg = 'Batch Error: Not all records could be updated.';
 
             if ($rollback) {
                 $this->rollbackTransaction();
-
                 $msg .= " All changes rolled back.";
             }
 
-            if ($ex instanceof RestException) {
-                $context = (empty($temp)) ? $context : $temp;
-                $ex->setContext($context);
-                $ex->setMessage($msg);
-                throw $ex;
-            }
-
-            throw new InternalServerErrorException("Failed to update records in '$table'.\n$msg", null, null,
-                $context);
+            throw new BatchException($out, $msg);
         }
+
+        if ($result = $this->commitTransaction($extras)) {
+            $out = $result;
+        }
+
+        return $out;
     }
 
     /**
@@ -945,12 +881,13 @@ abstract class BaseDbTableResource extends BaseDbResource
             $results = $this->updateRecords($table, $records, $extras);
 
             return array_get($results, 0, []);
-        } catch (RestException $ex) {
-            $context = (array)$ex->getContext();
-            $msg = current(array_get($context, 'resource'));
-            $ex->setContext(null);
-            $ex->setMessage($msg);
-            throw $ex;
+        } catch (BatchException $ex) {
+            $response = $ex->pickResponse(0);
+            if ($response instanceof \Exception) {
+                throw $response;
+            }
+
+            return $response;
         } catch (\Exception $ex) {
             throw new InternalServerErrorException("Failed to update records from '$table'.\n" . $ex->getMessage());
         }
@@ -1030,74 +967,42 @@ abstract class BaseDbTableResource extends BaseDbResource
         $extras['updates'] = $record;
 
         $out = [];
-        $errors = [];
-        try {
-            foreach ($ids as $index => $id) {
-                try {
-                    if (false === $id = static::checkForIds($id, $this->tableIdsInfo, $extras, true)) {
-                        throw new BadRequestException("Required id field(s) not valid in request $index: " .
-                            print_r($id, true));
-                    }
+        $errors = false;
+        foreach ($ids as $index => $id) {
+            try {
+                if (false === $id = static::checkForIds($id, $this->tableIdsInfo, $extras, true)) {
+                    throw new BadRequestException("Required id field(s) not valid in request $index: " .
+                        print_r($id, true));
+                }
 
-                    $result = $this->addToTransaction(null, $id, $extras, $rollback, $continue, $isSingle);
-                    if (isset($result)) {
-                        // operation performed, take output
-                        $out[$index] = $result;
-                    }
-                } catch (\Exception $ex) {
-                    if ($isSingle || $rollback || !$continue) {
-                        if (0 !== $index) {
-                            // first error, don't worry about batch just throw it
-                            // mark last error and index for batch results
-                            $errors[] = $index;
-                            $out[$index] = $ex->getMessage();
-                        }
-
-                        throw $ex;
-                    }
-
-                    // mark error and index for batch results
-                    $errors[] = $index;
-                    $out[$index] = $ex->getMessage();
+                $out[$index] = $this->addToTransaction(null, $id, $extras, $rollback, $continue, $isSingle);
+            } catch (\Exception $ex) {
+                // mark error and index for batch results
+                $errors[] = true;
+                $out[$index] = $ex;
+                if ($rollback || !$continue) {
+                    break;
                 }
             }
+        }
 
-            if (!empty($errors)) {
-                throw new BadRequestException();
-            }
-
-            $result = $this->commitTransaction($extras);
-            if (isset($result)) {
-                $out = $result;
-            }
-
-            return $out;
-        } catch (\Exception $ex) {
-            $msg = $ex->getMessage();
-
-            $context = null;
-            if (!empty($errors)) {
-                $wrapper = ResourcesWrapper::getWrapper();
-                $context = ['error' => $errors, $wrapper => $out];
-                $msg = 'Batch Error: Not all records could be updated.';
-            }
+        if ($errors) {
+            $msg = 'Batch Error: Not all records could be updated.';
 
             if ($rollback) {
                 $this->rollbackTransaction();
-
                 $msg .= " All changes rolled back.";
             }
 
-            if ($ex instanceof RestException) {
-                $context = (empty($temp)) ? $context : $temp;
-                $ex->setContext($context);
-                $ex->setMessage($msg);
-                throw $ex;
-            }
-
-            throw new InternalServerErrorException("Failed to update records in '$table'.\n$msg", null, null,
-                $context);
+            throw new BatchException($out, $msg);
         }
+
+        $result = $this->commitTransaction($extras);
+        if (isset($result)) {
+            $out = $result;
+        }
+
+        return $out;
     }
 
     /**
@@ -1117,12 +1022,13 @@ abstract class BaseDbTableResource extends BaseDbResource
             $results = $this->updateRecordsByIds($table, $record, $id, $extras);
 
             return array_get($results, 0, []);
-        } catch (RestException $ex) {
-            $context = (array)$ex->getContext();
-            $msg = current(array_get($context, 'resource'));
-            $ex->setContext(null);
-            $ex->setMessage($msg);
-            throw $ex;
+        } catch (BatchException $ex) {
+            $response = $ex->pickResponse(0);
+            if ($response instanceof \Exception) {
+                throw $response;
+            }
+
+            return $response;
         } catch (\Exception $ex) {
             throw new InternalServerErrorException("Failed to update records from '$table'.\n" . $ex->getMessage());
         }
@@ -1156,74 +1062,42 @@ abstract class BaseDbTableResource extends BaseDbResource
         $extras['require_more'] = static::requireMoreFields($fields, $idFields);
 
         $out = [];
-        $errors = [];
-        try {
-            foreach ($records as $index => $record) {
-                try {
-                    if (false === $id = static::checkForIds($record, $this->tableIdsInfo, $extras)) {
-                        throw new BadRequestException("Required id field(s) not found in record $index: " .
-                            print_r($record, true));
-                    }
+        $errors = false;
+        foreach ($records as $index => $record) {
+            try {
+                if (false === $id = static::checkForIds($record, $this->tableIdsInfo, $extras)) {
+                    throw new BadRequestException("Required id field(s) not found in record $index: " .
+                        print_r($record, true));
+                }
 
-                    $result = $this->addToTransaction($record, $id, $extras, $rollback, $continue, $isSingle);
-                    if (isset($result)) {
-                        // operation performed, take output
-                        $out[$index] = $result;
-                    }
-                } catch (\Exception $ex) {
-                    if ($isSingle || $rollback || !$continue) {
-                        if (0 !== $index) {
-                            // first error, don't worry about batch just throw it
-                            // mark last error and index for batch results
-                            $errors[] = $index;
-                            $out[$index] = $ex->getMessage();
-                        }
-
-                        throw $ex;
-                    }
-
-                    // mark error and index for batch results
-                    $errors[] = $index;
-                    $out[$index] = $ex->getMessage();
+                $out[$index] = $this->addToTransaction($record, $id, $extras, $rollback, $continue, $isSingle);
+            } catch (\Exception $ex) {
+                // mark error and index for batch results
+                $errors = true;
+                $out[$index] = $ex;
+                if ($rollback || !$continue) {
+                    break;
                 }
             }
+        }
 
-            if (!empty($errors)) {
-                throw new BadRequestException();
-            }
-
-            $result = $this->commitTransaction($extras);
-            if (isset($result)) {
-                $out = $result;
-            }
-
-            return $out;
-        } catch (\Exception $ex) {
-            $msg = $ex->getMessage();
-
-            $context = null;
-            if (!empty($errors)) {
-                $wrapper = ResourcesWrapper::getWrapper();
-                $context = ['error' => $errors, $wrapper => $out];
-                $msg = 'Batch Error: Not all records could be patched.';
-            }
+        if ($errors) {
+            $msg = 'Batch Error: Not all records could be patched.';
 
             if ($rollback) {
                 $this->rollbackTransaction();
-
                 $msg .= " All changes rolled back.";
             }
 
-            if ($ex instanceof RestException) {
-                $context = (empty($temp)) ? $context : $temp;
-                $ex->setContext($context);
-                $ex->setMessage($msg);
-                throw $ex;
-            }
-
-            throw new InternalServerErrorException("Failed to patch records in '$table'.\n$msg", null, null,
-                $context);
+            throw new BatchException($out, $msg);
         }
+
+        $result = $this->commitTransaction($extras);
+        if (isset($result)) {
+            $out = $result;
+        }
+
+        return $out;
     }
 
     /**
@@ -1242,12 +1116,13 @@ abstract class BaseDbTableResource extends BaseDbResource
             $results = $this->patchRecords($table, $records, $extras);
 
             return array_get($results, 0, []);
-        } catch (RestException $ex) {
-            $context = (array)$ex->getContext();
-            $msg = current(array_get($context, 'resource'));
-            $ex->setContext(null);
-            $ex->setMessage($msg);
-            throw $ex;
+        } catch (BatchException $ex) {
+            $response = $ex->pickResponse(0);
+            if ($response instanceof \Exception) {
+                throw $response;
+            }
+
+            return $response;
         } catch (\Exception $ex) {
             throw new InternalServerErrorException("Failed to patch records from '$table'.\n" . $ex->getMessage());
         }
@@ -1325,74 +1200,41 @@ abstract class BaseDbTableResource extends BaseDbResource
         $extras['updates'] = $record;
 
         $out = [];
-        $errors = [];
-        try {
-            foreach ($ids as $index => $id) {
-                try {
-                    if (false === $id = static::checkForIds($id, $this->tableIdsInfo, $extras, true)) {
-                        throw new BadRequestException("Required id field(s) not valid in request $index: " .
-                            print_r($id, true));
-                    }
+        $errors = false;
+        foreach ($ids as $index => $id) {
+            try {
+                if (false === $id = static::checkForIds($id, $this->tableIdsInfo, $extras, true)) {
+                    throw new BadRequestException("Required id field(s) not valid in request $index: " .
+                        print_r($id, true));
+                }
 
-                    $result = $this->addToTransaction(null, $id, $extras, $rollback, $continue, $isSingle);
-                    if (isset($result)) {
-                        // operation performed, take output
-                        $out[$index] = $result;
-                    }
-                } catch (\Exception $ex) {
-                    if ($isSingle || $rollback || !$continue) {
-                        if (0 !== $index) {
-                            // first error, don't worry about batch just throw it
-                            // mark last error and index for batch results
-                            $errors[] = $index;
-                            $out[$index] = $ex->getMessage();
-                        }
-
-                        throw $ex;
-                    }
-
-                    // mark error and index for batch results
-                    $errors[] = $index;
-                    $out[$index] = $ex->getMessage();
+                $out[$index] = $this->addToTransaction(null, $id, $extras, $rollback, $continue, $isSingle);
+            } catch (\Exception $ex) {
+                // mark error and index for batch results
+                $errors = true;
+                $out[$index] = $ex;
+                if ($rollback || !$continue) {
+                    break;
                 }
             }
+        }
 
-            if (!empty($errors)) {
-                throw new BadRequestException();
-            }
-
-            $result = $this->commitTransaction($extras);
-            if (isset($result)) {
-                $out = $result;
-            }
-
-            return $out;
-        } catch (\Exception $ex) {
-            $msg = $ex->getMessage();
-
-            $context = null;
-            if (!empty($errors)) {
-                $wrapper = ResourcesWrapper::getWrapper();
-                $context = ['error' => $errors, $wrapper => $out];
-                $msg = 'Batch Error: Not all records could be patched.';
-            }
+        if ($errors) {
+            $msg = 'Batch Error: Not all records could be patched.';
 
             if ($rollback) {
                 $this->rollbackTransaction();
-
                 $msg .= " All changes rolled back.";
             }
 
-            if ($ex instanceof RestException) {
-                $context = (empty($temp)) ? $context : $temp;
-                $ex->setContext($context);
-                $ex->setMessage($msg);
-                throw $ex;
-            }
-
-            throw new InternalServerErrorException("Failed to patch records in '$table'.\n$msg", null, null,
-                $context);
+            throw new BatchException($out, $msg);
         }
+
+        if ($result = $this->commitTransaction($extras)) {
+            $out = $result;
+        }
+
+        return $out;
     }
 
     /**
@@ -1412,12 +1254,13 @@ abstract class BaseDbTableResource extends BaseDbResource
             $results = $this->patchRecordsByIds($table, $record, $id, $extras);
 
             return array_get($results, 0, []);
-        } catch (RestException $ex) {
-            $context = (array)$ex->getContext();
-            $msg = current(array_get($context, 'resource'));
-            $ex->setContext(null);
-            $ex->setMessage($msg);
-            throw $ex;
+        } catch (BatchException $ex) {
+            $response = $ex->pickResponse(0);
+            if ($response instanceof \Exception) {
+                throw $response;
+            }
+
+            return $response;
         } catch (\Exception $ex) {
             throw new InternalServerErrorException("Failed to patch records from '$table'.\n" . $ex->getMessage());
         }
@@ -1467,12 +1310,13 @@ abstract class BaseDbTableResource extends BaseDbResource
             $results = $this->deleteRecords($table, [$record], $extras);
 
             return array_get($results, 0, []);
-        } catch (RestException $ex) {
-            $context = (array)$ex->getContext();
-            $msg = current(array_get($context, 'resource'));
-            $ex->setContext(null);
-            $ex->setMessage($msg);
-            throw $ex;
+        } catch (BatchException $ex) {
+            $response = $ex->pickResponse(0);
+            if ($response instanceof \Exception) {
+                throw $response;
+            }
+
+            return $response;
         } catch (\Exception $ex) {
             throw new InternalServerErrorException("Failed to delete records from '$table'.\n" . $ex->getMessage());
         }
@@ -1542,74 +1386,41 @@ abstract class BaseDbTableResource extends BaseDbResource
         $extras['require_more'] = static::requireMoreFields($fields, $idFields);
 
         $out = [];
-        $errors = [];
-        try {
-            foreach ($ids as $index => $id) {
-                try {
-                    if (false === $id = static::checkForIds($id, $this->tableIdsInfo, $extras, true)) {
-                        throw new BadRequestException("Required id field(s) not valid in request $index: " .
-                            print_r($id, true));
-                    }
+        $errors = false;
+        foreach ($ids as $index => $id) {
+            try {
+                if (false === $id = static::checkForIds($id, $this->tableIdsInfo, $extras, true)) {
+                    throw new BadRequestException("Required id field(s) not valid in request $index: " .
+                        print_r($id, true));
+                }
 
-                    $result = $this->addToTransaction(null, $id, $extras, $rollback, $continue, $isSingle);
-                    if (isset($result)) {
-                        // operation performed, take output
-                        $out[$index] = $result;
-                    }
-                } catch (\Exception $ex) {
-                    if ($isSingle || $rollback || !$continue) {
-                        if (0 !== $index) {
-                            // first error, don't worry about batch just throw it
-                            // mark last error and index for batch results
-                            $errors[] = $index;
-                            $out[$index] = $ex->getMessage();
-                        }
-
-                        throw $ex;
-                    }
-
-                    // mark error and index for batch results
-                    $errors[] = $index;
-                    $out[$index] = $ex->getMessage();
+                $out[$index] = $this->addToTransaction(null, $id, $extras, $rollback, $continue, $isSingle);
+            } catch (\Exception $ex) {
+                $errors = true;
+                $out[$index] = $ex;
+                if ($rollback || !$continue) {
+                    continue;
                 }
             }
+        }
 
-            if (!empty($errors)) {
-                throw new BadRequestException();
-            }
-
-            $result = $this->commitTransaction($extras);
-            if (isset($result)) {
-                $out = $result;
-            }
-
-            return $out;
-        } catch (\Exception $ex) {
-            $msg = $ex->getMessage();
-
-            $context = null;
-            if (!empty($errors)) {
-                $wrapper = ResourcesWrapper::getWrapper();
-                $context = ['error' => $errors, $wrapper => $out];
-                $msg = 'Batch Error: Not all records could be deleted.';
-            }
+        if ($errors) {
+            $msg = 'Batch Error: Not all records could be deleted.';
 
             if ($rollback) {
                 $this->rollbackTransaction();
-
                 $msg .= " All changes rolled back.";
             }
 
-            if ($ex instanceof RestException) {
-                $context = (empty($temp)) ? $context : $temp;
-                $ex->setContext($context);
-                $ex->setMessage($msg);
-                throw $ex;
-            }
-
-            throw new InternalServerErrorException("Failed to delete records from '$table'.\n$msg", null, null,
-                $context);
+            throw new BatchException($out, $msg);
         }
+
+        $result = $this->commitTransaction($extras);
+        if (isset($result)) {
+            $out = $result;
+        }
+
+        return $out;
     }
 
     /**
@@ -1626,12 +1437,13 @@ abstract class BaseDbTableResource extends BaseDbResource
             $results = $this->deleteRecordsByIds($table, $id, $extras);
 
             return array_get($results, 0, []);
-        } catch (RestException $ex) {
-            $context = (array)$ex->getContext();
-            $msg = current(array_get($context, 'resource'));
-            $ex->setContext(null);
-            $ex->setMessage($msg);
-            throw $ex;
+        } catch (BatchException $ex) {
+            $response = $ex->pickResponse(0);
+            if ($response instanceof \Exception) {
+                throw $response;
+            }
+
+            return $response;
         } catch (\Exception $ex) {
             throw new InternalServerErrorException("Failed to delete records from '$table'.\n" . $ex->getMessage());
         }
@@ -1714,12 +1526,13 @@ abstract class BaseDbTableResource extends BaseDbResource
             $results = $this->retrieveRecords($table, [$record], $extras);
 
             return array_get($results, 0, []);
-        } catch (RestException $ex) {
-            $context = (array)$ex->getContext();
-            $msg = current(array_get($context, 'resource'));
-            $ex->setContext(null);
-            $ex->setMessage($msg);
-            throw $ex;
+        } catch (BatchException $ex) {
+            $response = $ex->pickResponse(0);
+            if ($response instanceof \Exception) {
+                throw $response;
+            }
+
+            return $response;
         } catch (\Exception $ex) {
             throw new InternalServerErrorException("Failed to retrieve records from '$table'.\n" . $ex->getMessage());
         }
@@ -1740,7 +1553,8 @@ abstract class BaseDbTableResource extends BaseDbResource
         $fields = array_get($extras, ApiOptions::FIELDS);
         $idFields = array_get($extras, ApiOptions::ID_FIELD);
         $idTypes = array_get($extras, ApiOptions::ID_TYPE);
-        $continue = Scalar::boolval(array_get($extras, ApiOptions::CONTINUES));
+        $isSingle = (1 == count($ids));
+        $continue = ($isSingle) ? false : Scalar::boolval(array_get($extras, ApiOptions::CONTINUES));
 
         $this->initTransaction($table, $idFields, $idTypes);
 
@@ -1748,61 +1562,34 @@ abstract class BaseDbTableResource extends BaseDbResource
         $extras['require_more'] = static::requireMoreFields($fields, $idFields);
 
         $out = [];
-        $errors = [];
-        try {
-            foreach ($ids as $index => $id) {
-                try {
-                    if (false === $id = static::checkForIds($id, $this->tableIdsInfo, $extras, true)) {
-                        throw new BadRequestException("Required id field(s) not valid in request $index: " .
-                            print_r($id, true));
-                    }
+        $errors = false;
+        foreach ($ids as $index => $id) {
+            try {
+                if (false === $id = static::checkForIds($id, $this->tableIdsInfo, $extras, true)) {
+                    throw new BadRequestException("Required id field(s) not valid in request $index: " .
+                        print_r($id, true));
+                }
 
-                    $result = $this->addToTransaction(null, $id, $extras, false, $continue);
-                    if (isset($result)) {
-                        // operation performed, take output
-                        $out[$index] = $result;
-                    }
-                } catch (\Exception $ex) {
-                    // mark error and index for batch results
-                    $errors[] = $index;
-                    $out[$index] = $ex->getMessage();
-                    if (!$continue) {
-                        throw $ex;
-                    }
+                $out[$index] = $this->addToTransaction(null, $id, $extras, false, $continue, $isSingle);
+            } catch (\Exception $ex) {
+                // mark error and index for batch results
+                $errors = true;
+                $out[$index] = $ex;
+                if (!$continue) {
+                    break;
                 }
             }
-
-            if (!empty($errors)) {
-                throw new BadRequestException();
-            }
-
-            $result = $this->commitTransaction($extras);
-            if (isset($result)) {
-                $out = $result;
-            }
-
-            return $out;
-        } catch (\Exception $ex) {
-            $msg = $ex->getMessage();
-
-            $context = null;
-            if (!empty($errors)) {
-                $wrapper = ResourcesWrapper::getWrapper();
-                $context = ['error' => $errors, $wrapper => $out];
-                $msg = 'Batch Error: Not all records could be retrieved.';
-            }
-
-            if ($ex instanceof RestException) {
-                $temp = $ex->getContext();
-                $context = (empty($temp)) ? $context : $temp;
-                $ex->setContext($context);
-                $ex->setMessage($msg);
-                throw $ex;
-            }
-
-            throw new InternalServerErrorException("Failed to retrieve records from '$table'.\n$msg", null, null,
-                $context);
         }
+
+        if ($errors) {
+            throw new BatchException($out, 'Batch Error: Not all records could be retrieved.');
+        }
+
+        if ($result = $this->commitTransaction($extras)) {
+            $out = $result;
+        }
+
+        return $out;
     }
 
     /**
@@ -1819,12 +1606,13 @@ abstract class BaseDbTableResource extends BaseDbResource
             $results = $this->retrieveRecordsByIds($table, $id, $extras);
 
             return array_get($results, 0, []);
-        } catch (RestException $ex) {
-            $context = (array)$ex->getContext();
-            $msg = current(array_get($context, 'resource'));
-            $ex->setContext(null);
-            $ex->setMessage($msg);
-            throw $ex;
+        } catch (BatchException $ex) {
+            $response = $ex->pickResponse(0);
+            if ($response instanceof \Exception) {
+                throw $response;
+            }
+
+            return $response;
         } catch (\Exception $ex) {
             throw new InternalServerErrorException("Failed to retrieve records from '$table'.\n" . $ex->getMessage());
         }

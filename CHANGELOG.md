@@ -7,6 +7,7 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 ### Changed
 - DF-967 Made the error message 'No record(s) detected in request.' more verbose
 - When using 'ids' in URL or payload, always return a batch response, even for a single id
+- Batch calls now consistently return errors in batch format use BatchException
 
 ### Fixed
 - Fixed migrations with timestamp fields due to Laravel issue #11518 with some MySQL versions
