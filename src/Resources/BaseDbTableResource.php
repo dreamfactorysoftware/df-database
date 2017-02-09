@@ -1082,7 +1082,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         }
 
         if ($errors) {
-            $msg = 'Batch Error: Not all requested records could be patched.';
+            $msg = 'Batch Error: Not all requested records could be updated.';
 
             if ($rollback) {
                 $this->rollbackTransaction();
@@ -1220,7 +1220,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         }
 
         if ($errors) {
-            $msg = 'Batch Error: Not all requested records could be patched.';
+            $msg = 'Batch Error: Not all requested records could be updated.';
 
             if ($rollback) {
                 $this->rollbackTransaction();
