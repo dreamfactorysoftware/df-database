@@ -1399,7 +1399,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                 $errors = true;
                 $out[$index] = $ex;
                 if ($rollback || !$continue) {
-                    continue;
+                    break;
                 }
             }
         }
