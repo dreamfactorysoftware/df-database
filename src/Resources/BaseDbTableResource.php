@@ -723,8 +723,8 @@ abstract class BaseDbTableResource extends BaseDbResource
         $fields = array_get($extras, ApiOptions::FIELDS);
         $idFields = array_get($extras, ApiOptions::ID_FIELD);
         $idTypes = array_get($extras, ApiOptions::ID_TYPE);
-        $rollback = ($isSingle) ? false : Scalar::boolval(array_get($extras, ApiOptions::ROLLBACK, false));
-        $continue = ($isSingle) ? false : Scalar::boolval(array_get($extras, ApiOptions::CONTINUES, false));
+        $rollback = Scalar::boolval(array_get($extras, ApiOptions::ROLLBACK, false));
+        $continue = Scalar::boolval(array_get($extras, ApiOptions::CONTINUES, false));
         if ($rollback && $continue) {
             throw new BadRequestException('Rollback and continue operations can not be requested at the same time.');
         }
@@ -754,7 +754,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         }
 
         if ($errors) {
-            $msg = 'Batch Error: Not all records could be created.';
+            $msg = 'Batch Error: Not all requested records could be created.';
 
             if ($rollback) {
                 $this->rollbackTransaction();
@@ -816,8 +816,8 @@ abstract class BaseDbTableResource extends BaseDbResource
         $idFields = array_get($extras, ApiOptions::ID_FIELD);
         $idTypes = array_get($extras, ApiOptions::ID_TYPE);
         $isSingle = (1 == count($records));
-        $rollback = ($isSingle) ? false : Scalar::boolval(array_get($extras, ApiOptions::ROLLBACK, false));
-        $continue = ($isSingle) ? false : Scalar::boolval(array_get($extras, ApiOptions::CONTINUES, false));
+        $rollback = Scalar::boolval(array_get($extras, ApiOptions::ROLLBACK, false));
+        $continue = Scalar::boolval(array_get($extras, ApiOptions::CONTINUES, false));
         if ($rollback && $continue) {
             throw new BadRequestException('Rollback and continue operations can not be requested at the same time.');
         }
@@ -848,7 +848,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         }
 
         if ($errors) {
-            $msg = 'Batch Error: Not all records could be updated.';
+            $msg = 'Batch Error: Not all requested records could be updated.';
 
             if ($rollback) {
                 $this->rollbackTransaction();
@@ -952,8 +952,8 @@ abstract class BaseDbTableResource extends BaseDbResource
         $idFields = array_get($extras, ApiOptions::ID_FIELD);
         $idTypes = array_get($extras, ApiOptions::ID_TYPE);
         $isSingle = (1 == count($ids));
-        $rollback = ($isSingle) ? false : Scalar::boolval(array_get($extras, ApiOptions::ROLLBACK, false));
-        $continue = ($isSingle) ? false : Scalar::boolval(array_get($extras, ApiOptions::CONTINUES, false));
+        $rollback = Scalar::boolval(array_get($extras, ApiOptions::ROLLBACK, false));
+        $continue = Scalar::boolval(array_get($extras, ApiOptions::CONTINUES, false));
         if ($rollback && $continue) {
             throw new BadRequestException('Rollback and continue operations can not be requested at the same time.');
         }
@@ -978,7 +978,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                 $out[$index] = $this->addToTransaction(null, $id, $extras, $rollback, $continue, $isSingle);
             } catch (\Exception $ex) {
                 // mark error and index for batch results
-                $errors[] = true;
+                $errors = true;
                 $out[$index] = $ex;
                 if ($rollback || !$continue) {
                     break;
@@ -987,7 +987,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         }
 
         if ($errors) {
-            $msg = 'Batch Error: Not all records could be updated.';
+            $msg = 'Batch Error: Not all requested records could be updated.';
 
             if ($rollback) {
                 $this->rollbackTransaction();
@@ -1050,8 +1050,8 @@ abstract class BaseDbTableResource extends BaseDbResource
         $idFields = array_get($extras, ApiOptions::ID_FIELD);
         $idTypes = array_get($extras, ApiOptions::ID_TYPE);
         $isSingle = (1 == count($records));
-        $rollback = ($isSingle) ? false : Scalar::boolval(array_get($extras, ApiOptions::ROLLBACK, false));
-        $continue = ($isSingle) ? false : Scalar::boolval(array_get($extras, ApiOptions::CONTINUES, false));
+        $rollback = Scalar::boolval(array_get($extras, ApiOptions::ROLLBACK, false));
+        $continue = Scalar::boolval(array_get($extras, ApiOptions::CONTINUES, false));
         if ($rollback && $continue) {
             throw new BadRequestException('Rollback and continue operations can not be requested at the same time.');
         }
@@ -1082,7 +1082,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         }
 
         if ($errors) {
-            $msg = 'Batch Error: Not all records could be patched.';
+            $msg = 'Batch Error: Not all requested records could be patched.';
 
             if ($rollback) {
                 $this->rollbackTransaction();
@@ -1185,8 +1185,8 @@ abstract class BaseDbTableResource extends BaseDbResource
         $idFields = array_get($extras, ApiOptions::ID_FIELD);
         $idTypes = array_get($extras, ApiOptions::ID_TYPE);
         $isSingle = (1 == count($ids));
-        $rollback = ($isSingle) ? false : Scalar::boolval(array_get($extras, ApiOptions::ROLLBACK, false));
-        $continue = ($isSingle) ? false : Scalar::boolval(array_get($extras, ApiOptions::CONTINUES, false));
+        $rollback = Scalar::boolval(array_get($extras, ApiOptions::ROLLBACK, false));
+        $continue = Scalar::boolval(array_get($extras, ApiOptions::CONTINUES, false));
         if ($rollback && $continue) {
             throw new BadRequestException('Rollback and continue operations can not be requested at the same time.');
         }
@@ -1220,7 +1220,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         }
 
         if ($errors) {
-            $msg = 'Batch Error: Not all records could be patched.';
+            $msg = 'Batch Error: Not all requested records could be patched.';
 
             if ($rollback) {
                 $this->rollbackTransaction();
@@ -1374,8 +1374,8 @@ abstract class BaseDbTableResource extends BaseDbResource
         $idFields = array_get($extras, ApiOptions::ID_FIELD);
         $idTypes = array_get($extras, ApiOptions::ID_TYPE);
         $isSingle = (1 == count($ids));
-        $rollback = ($isSingle) ? false : Scalar::boolval(array_get($extras, ApiOptions::ROLLBACK, false));
-        $continue = ($isSingle) ? false : Scalar::boolval(array_get($extras, ApiOptions::CONTINUES, false));
+        $rollback = Scalar::boolval(array_get($extras, ApiOptions::ROLLBACK, false));
+        $continue = Scalar::boolval(array_get($extras, ApiOptions::CONTINUES, false));
         if ($rollback && $continue) {
             throw new BadRequestException('Rollback and continue operations can not be requested at the same time.');
         }
@@ -1405,7 +1405,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         }
 
         if ($errors) {
-            $msg = 'Batch Error: Not all records could be deleted.';
+            $msg = 'Batch Error: Not all requested records could be deleted.';
 
             if ($rollback) {
                 $this->rollbackTransaction();
@@ -1554,7 +1554,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         $idFields = array_get($extras, ApiOptions::ID_FIELD);
         $idTypes = array_get($extras, ApiOptions::ID_TYPE);
         $isSingle = (1 == count($ids));
-        $continue = ($isSingle) ? false : Scalar::boolval(array_get($extras, ApiOptions::CONTINUES));
+        $continue = Scalar::boolval(array_get($extras, ApiOptions::CONTINUES));
 
         $this->initTransaction($table, $idFields, $idTypes);
 
@@ -1582,7 +1582,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         }
 
         if ($errors) {
-            throw new BatchException($out, 'Batch Error: Not all records could be retrieved.');
+            throw new BatchException($out, 'Batch Error: Not all requested records could be retrieved.');
         }
 
         if ($result = $this->commitTransaction($extras)) {
