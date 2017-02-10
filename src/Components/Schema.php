@@ -4089,7 +4089,7 @@ MYSQL;
 
             case 'bigint':
                 // bigint too big to represent as number in php
-                return DbSimpleTypes::TYPE_BIGINT;
+                return DbSimpleTypes::TYPE_BIG_INT;
                 break;
 
             case (false !== strpos($type, 'timestamp')):
@@ -4128,8 +4128,21 @@ MYSQL;
                 }
                 break;
 
+            // common routine return types
             case 'ref cursor':
                 return DbSimpleTypes::TYPE_REF_CURSOR;
+                break;
+
+            case 'table':
+                return DbSimpleTypes::TYPE_TABLE;
+                break;
+
+            case 'column':
+                return DbSimpleTypes::TYPE_COLUMN;
+                break;
+
+            case 'row':
+                return DbSimpleTypes::TYPE_ROW;
                 break;
 
             case 'string':
