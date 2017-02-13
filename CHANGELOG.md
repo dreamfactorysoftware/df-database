@@ -11,6 +11,7 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 
 ### Fixed
 - Fixed migrations with timestamp fields due to Laravel issue #11518 with some MySQL versions
+- DF-934 Corrected parsing of negative integers in records coming from XML payloads
 
 ## [0.1.3] - 2017-01-20
 ### Fixed

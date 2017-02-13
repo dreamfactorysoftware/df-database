@@ -2881,7 +2881,12 @@ abstract class BaseDbTableResource extends BaseDbResource
                     break;
 
                 case DbSimpleTypes::TYPE_INTEGER:
+                case DbSimpleTypes::TYPE_INT:
+                case DbSimpleTypes::TYPE_SMALL_INT:
+                case DbSimpleTypes::TYPE_MEDIUM_INTEGER:
                 case DbSimpleTypes::TYPE_ID:
+                case DbSimpleTypes::TYPE_SMALL_ID:
+                case DbSimpleTypes::TYPE_MEDIUM_ID:
                 case DbSimpleTypes::TYPE_REF:
                 case DbSimpleTypes::TYPE_USER_ID:
                 case DbSimpleTypes::TYPE_USER_ID_ON_CREATE:
@@ -2889,14 +2894,18 @@ abstract class BaseDbTableResource extends BaseDbResource
                     if (!is_int($value)) {
                         if (('' === $value) && $field_info->allowNull) {
                             $value = null;
-                        } elseif (!ctype_digit($value)) {
-                            if (!is_float($value)) { // bigint catch as float
-                                throw new BadRequestException("Field '{$field_info->getName(true)}' must be a valid integer.");
-                            }
+                        } elseif (!is_numeric($value)) {
+                            throw new BadRequestException("Field '{$field_info->getName(true)}' must be a valid integer.");
                         } else {
-                            $value = intval($value);
+                            if (!is_float($value)) { // bigint catch as float
+                                $value = intval($value);
+                            }
                         }
                     }
+                    break;
+
+                case DbSimpleTypes::TYPE_BIG_INT:
+                case DbSimpleTypes::TYPE_BIG_ID:
                     break;
 
                 case DbSimpleTypes::TYPE_DECIMAL:
