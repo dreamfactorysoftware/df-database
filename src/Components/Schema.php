@@ -3989,6 +3989,13 @@ MYSQL;
             case DbSimpleTypes::TYPE_MONEY:
                 return 'double';
 
+            case DbSimpleTypes::TYPE_ARRAY:
+            case DbSimpleTypes::TYPE_TABLE:
+                return 'array';
+
+            case DbSimpleTypes::TYPE_OBJECT:
+                return 'object';
+
             default:
                 return 'string';
         }

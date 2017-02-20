@@ -5,6 +5,7 @@ namespace DreamFactory\Core\Database\Resources;
 use Config;
 use DreamFactory\Core\Components\DataValidator;
 use DreamFactory\Core\Components\Service2ServiceRequest;
+use DreamFactory\Core\Contracts\ServiceInterface;
 use DreamFactory\Core\Database\Enums\DbFunctionUses;
 use DreamFactory\Core\Database\Schema\RelationSchema;
 use DreamFactory\Core\Database\Schema\TableSchema;
@@ -1877,6 +1878,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         }
 
         //  Now set the request object and go...
+        /** @var ServiceInterface $service */
         $service = ServiceManager::getService($serviceName);
         $response = $service->handleRequest($request, $resource);
         $content = $response->getContent();
