@@ -436,6 +436,9 @@ abstract class BaseDbTableResource extends BaseDbResource
         }
 
         $options = $this->request->getParameters();
+        if (!array_key_exists(ApiOptions::FIELDS, $options)) {
+            $options[ApiOptions::FIELDS] = ApiOptions::FIELDS_ALL;
+        }
 
         if (!empty($this->resourceId)) {
             //	Single resource by ID
