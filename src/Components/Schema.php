@@ -4144,6 +4144,10 @@ MYSQL;
                 return DbSimpleTypes::TYPE_TABLE;
                 break;
 
+            case 'array':
+                return DbSimpleTypes::TYPE_ARRAY;
+                break;
+
             case 'column':
                 return DbSimpleTypes::TYPE_COLUMN;
                 break;
