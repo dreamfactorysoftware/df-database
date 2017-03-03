@@ -36,7 +36,7 @@ class CreateDbExtrasTables extends Migration
                     $t->string('name_field', 128)->nullable();
                     $t->string('model')->nullable();
                     $t->text('description')->nullable();
-                    $t->timestamp('created_date')->useCurrent();
+                    $t->timestamp('created_date')->nullable();
                     $t->timestamp('last_modified_date')->useCurrent();
                     $t->integer('created_by_id')->unsigned()->nullable();
                     $t->foreign('created_by_id')->references('id')->on('user')->onDelete($userOnDelete);
@@ -62,7 +62,7 @@ class CreateDbExtrasTables extends Migration
                     $t->text('picklist')->nullable();
                     $t->text('validation')->nullable();
                     $t->text('client_info')->nullable();
-                    $t->timestamp('created_date')->useCurrent();
+                    $t->timestamp('created_date')->nullable();
                     $t->timestamp('last_modified_date')->useCurrent();
                     $t->integer('created_by_id')->unsigned()->nullable();
                     $t->foreign('created_by_id')->references('id')->on('user')->onDelete($userOnDelete);

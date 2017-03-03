@@ -37,7 +37,7 @@ class DbVirtualRelationship extends Migration
                 $t->string('junction_table')->nullable();
                 $t->string('junction_field')->nullable();
                 $t->string('junction_ref_field')->nullable();
-                $t->timestamp('created_date')->useCurrent();
+                $t->timestamp('created_date')->nullable();
                 $t->timestamp('last_modified_date')->useCurrent();
                 $t->integer('created_by_id')->unsigned()->nullable();
                 $t->foreign('created_by_id')->references('id')->on('user')->onDelete($userOnDelete);
