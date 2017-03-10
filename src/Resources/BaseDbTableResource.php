@@ -4079,6 +4079,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                             ApiOptions::documentOption(ApiOptions::ID_TYPE),
                             ApiOptions::documentOption(ApiOptions::CONTINUES),
                             ApiOptions::documentOption(ApiOptions::ROLLBACK),
+                            ApiOptions::documentOption(ApiOptions::UPSERT),
                             [
                                 'name'        => 'X-HTTP-METHOD',
                                 'description' => 'Override request using POST to tunnel other http request, such as DELETE or GET passing a payload.',
