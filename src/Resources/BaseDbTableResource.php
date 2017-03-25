@@ -295,35 +295,48 @@ abstract class BaseDbTableResource extends BaseDbResource
             }
 
             // All calls can request related data to be returned
-            $related = $this->request->getParameter(ApiOptions::RELATED);
-            if (!empty($related) && is_string($related) && ('*' !== $related)) {
-                if (!is_array($related)) {
-                    $related = array_map('trim', explode(',', $related));
-                }
-                $relations = [];
-                foreach ($related as $relative) {
-                    // search for relation + '_' + option because '.' is replaced by '_'
-                    $relations[strtolower($relative)] =
-                        [
-                            'name'             => $relative,
-                            ApiOptions::FIELDS => $this->request->getParameter(
-                                str_replace('.', '_', $relative . '.' . ApiOptions::FIELDS),
-                                '*'),
-                            ApiOptions::LIMIT  => $this->request->getParameter(
-                                str_replace('.', '_', $relative . '.' . ApiOptions::LIMIT),
-                                static::getMaxRecordsReturnedLimit()),
-                            ApiOptions::ORDER  => $this->request->getParameter(
-                                str_replace('.', '_', $relative . '.' . ApiOptions::ORDER)),
-                            ApiOptions::GROUP  => $this->request->getParameter(
-                                str_replace('.', '_', $relative . '.' . ApiOptions::GROUP)),
-                        ];
-                }
-
+            $relations = $this->processRelations(
+		$this->request->getParameter(ApiOptions::RELATED));
+            if (!empty($relations)) {
                 $this->request->setParameter(ApiOptions::RELATED, $relations);
             }
         }
 
         return $this;
+    }
+
+    private function processRelations($related, $base = '')
+    {
+	$relations = [];
+
+        if (!empty($related) && is_string($related) && ('*' !== $related)) {
+            if (!is_array($related)) {
+                $related = array_map('trim', explode(',', $related));
+            }
+
+            foreach ($related as $relative) {
+                // search for relation + '_' + option because '.' is replaced by '_'
+                $relations[strtolower($relative)] =
+                    [
+                        'name'              => $relative,
+                        ApiOptions::FIELDS  => $this->request->getParameter(
+                            str_replace('.', '_', $base . $relative . '.' . ApiOptions::FIELDS),
+                            '*'),
+                        ApiOptions::LIMIT   => $this->request->getParameter(
+                            str_replace('.', '_', $base . $relative . '.' . ApiOptions::LIMIT),
+                            static::getMaxRecordsReturnedLimit()),
+                        ApiOptions::ORDER   => $this->request->getParameter(
+                            str_replace('.', '_', $base . $relative . '.' . ApiOptions::ORDER)),
+                        ApiOptions::GROUP   => $this->request->getParameter(
+                            str_replace('.', '_', $base . $relative . '.' . ApiOptions::GROUP)),
+                        ApiOptions::RELATED => $this->processRelations($this->request->getParameter(
+                            str_replace('.', '_', $base . $relative . '.' . ApiOptions::RELATED)),
+			    $relative . '_'),
+                    ];
+            }
+        }
+
+        return $relations;
     }
 
     /**
