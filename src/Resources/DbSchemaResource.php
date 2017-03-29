@@ -150,7 +150,12 @@ class DbSchemaResource extends BaseDbResource
     public function refreshCachedTables()
     {
         $this->parent->refreshTableCache();
-        event(new ServiceModifiedEvent(new Service(['id'   => $this->getServiceId(), 'name' => $this->getServiceName()])));
+        event(new ServiceModifiedEvent(
+            new Service([
+                'id'   => $this->getServiceId(),
+                'name' => $this->getServiceName()
+            ])
+        ));
     }
 
     /**

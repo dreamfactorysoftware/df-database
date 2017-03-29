@@ -33,6 +33,10 @@ abstract class BaseDbService extends BaseRestService  implements CachedInterface
     /**
      * @type bool
      */
+    protected $allowUpsert = false;
+    /**
+     * @type bool
+     */
     protected $cacheEnabled = false;
     /**
      * @var ConnectionInterface
@@ -60,6 +64,7 @@ abstract class BaseDbService extends BaseRestService  implements CachedInterface
         parent::__construct($settings);
 
         $config = (array)array_get($settings, 'config');
+        $this->allowUpsert = Scalar::boolval(array_get($config, 'allow_upsert'));
         $this->cacheEnabled = Scalar::boolval(array_get($config, 'cache_enabled'));
         $this->cacheTTL = intval(array_get($config, 'cache_ttl', \Config::get('df.default_cache_ttl')));
         $this->cachePrefix = 'service_' . $this->id . ':';
@@ -75,6 +80,11 @@ abstract class BaseDbService extends BaseRestService  implements CachedInterface
         } catch (\Exception $ex) {
             error_log("Failed to disconnect from database.\n{$ex->getMessage()}");
         }
+    }
+
+    public function upsertAllowed()
+    {
+        return $this->allowUpsert;
     }
 
     /**
