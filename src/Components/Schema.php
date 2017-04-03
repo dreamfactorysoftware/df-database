@@ -2275,7 +2275,9 @@ MYSQL;
                 }
 
                 $type = strtolower((string)array_get($field, 'type'));
-                if (!static::PROVIDES_FIELD_SCHEMA || array_get($extraNew, 'is_virtual', false) || $oldField->isVirtual) {
+                if (!static::PROVIDES_FIELD_SCHEMA || array_get($extraNew, 'is_virtual',
+                        false) || $oldField->isVirtual
+                ) {
                     if (!$oldField->isVirtual) {
                         throw new \Exception("Field '$name' already exists as non-virtual in table '{$table_schema->name}'.");
                     }
@@ -3060,42 +3062,67 @@ MYSQL;
         return $this->connection->raw('(NOW())');
     }
 
-    /**
-     * @param mixed  $value
-     * @param string $type
-     *
-     * @return bool|int|null|string
-     */
-    public function formatValue($value, $type)
+    protected function formatValueToPhpType($value, $type)
     {
-        $type = strtolower(strval($type));
-        switch ($type) {
-            case 'int':
-            case 'integer':
-                return intval($value);
-
-            case 'decimal':
-            case 'double':
-            case 'float':
-                return floatval($value);
-
-            case 'boolean':
-            case 'bool':
-                return Scalar::boolval($value);
-
-            case 'string':
-                return strval($value);
-
-            case 'time':
-            case 'date':
-            case 'datetime':
-            case 'timestamp':
-                $cfgFormat = static::getDateTimeFormat($type);
-
-                return static::formatDateTime($cfgFormat, $value);
+        if (!is_null($value)) {
+            switch (strtolower(strval($type))) {
+                case 'int':
+                case 'integer':
+                    return intval($value);
+                case 'bool':
+                case 'boolean':
+                    return Scalar::boolval($value);
+                case 'double':
+                case 'float':
+                    return floatval($value);
+                case 'string':
+                    return strval($value);
+            }
         }
 
         return $value;
+    }
+
+    /**
+     * @param mixed                               $value
+     * @param string|ParameterSchema|ColumnSchema $field_info
+     *
+     * @return mixed
+     */
+    public function formatValue($value, $field_info)
+    {
+        $type = DbSimpleTypes::TYPE_STRING;
+        if (is_string($field_info)) {
+            $type = $field_info;
+        } elseif ($field_info instanceof ColumnSchema) {
+            $type = $field_info->type;
+        } elseif ($field_info instanceof ParameterSchema) {
+            $type = $field_info->type;
+        }
+
+        $type = strtolower(strval($type));
+        switch ($type) {
+            // special handling for datetime types
+            case DbSimpleTypes::TYPE_DATE:
+                return static::formatDateTime(static::getDateTimeFormat(DbSimpleTypes::TYPE_DATE), $value);
+            case DbSimpleTypes::TYPE_DATETIME:
+            case DbSimpleTypes::TYPE_DATETIME_TZ:
+                return static::formatDateTime(static::getDateTimeFormat(DbSimpleTypes::TYPE_DATETIME), $value);
+            case DbSimpleTypes::TYPE_TIME:
+            case DbSimpleTypes::TYPE_TIME_TZ:
+                return static::formatDateTime(static::getDateTimeFormat(DbSimpleTypes::TYPE_TIME), $value);
+            case DbSimpleTypes::TYPE_TIMESTAMP:
+            case DbSimpleTypes::TYPE_TIMESTAMP_TZ:
+            case DbSimpleTypes::TYPE_TIMESTAMP_ON_CREATE:
+            case DbSimpleTypes::TYPE_TIMESTAMP_ON_UPDATE:
+                return static::formatDateTime(static::getDateTimeFormat(DbSimpleTypes::TYPE_TIMESTAMP), $value);
+        }
+
+        if ($field_info instanceof ColumnSchema) {
+            return $this->formatValueToPhpType($value, $field_info->phpType);
+        } else {
+            return $this->formatValueToPhpType($value, $this->extractPhpType($type));
+        }
     }
 
     /**
@@ -3600,12 +3627,14 @@ MYSQL;
             if (1 == count($result)) {
                 $result = current($result);
                 if (array_key_exists('output', $result)) {
-                    return (is_null($result['output']) ? null : $this->formatValue($result['output'],
-                        $function->returnType));
+                    $value = $result['output'];
+
+                    return (is_null($value) ? null : $this->formatValue($value, $function->returnType));
                 } elseif (array_key_exists($function->name, $result)) {
                     // some vendors return the results as the function's name
-                    return (is_null($result[$function->name]) ? null : $this->formatValue($result[$function->name],
-                        $function->returnType));
+                    $value = $result[$function->name];
+
+                    return (is_null($value) ? null : $this->formatValue($value, $function->returnType));
                 }
             }
         }
@@ -3758,8 +3787,9 @@ MYSQL;
                 case 'OUT':
                 case 'INOUT':
                     if (array_key_exists($key, $values)) {
+                        $value = $values[$key];
                         $out_params[$paramSchema->name] =
-                            (is_null($values[$key]) ? null : $this->formatValue($values[$key], $paramSchema->type));
+                            (is_null($value) ? null : $this->formatValue($value, $paramSchema));
                     }
                     break;
             }
@@ -3818,7 +3848,7 @@ MYSQL;
                     } else {
                         $value = $paramSchema->defaultValue;
                     }
-                    $values[$key] = (is_null($value) ? null : $this->formatValue($value, $paramSchema->type));
+                    $values[$key] = (is_null($value) ? null : $this->formatValue($value, $paramSchema));
                     break;
                 case 'OUT':
                     $values[$key] = null;
@@ -3975,9 +4005,15 @@ MYSQL;
             case DbSimpleTypes::TYPE_BOOLEAN:
                 return 'boolean';
 
-            case DbSimpleTypes::TYPE_INTEGER:
             case DbSimpleTypes::TYPE_ID:
+            case DbSimpleTypes::TYPE_INT:
+            case DbSimpleTypes::TYPE_INTEGER:
+            case DbSimpleTypes::TYPE_MEDIUM_ID:
+            case DbSimpleTypes::TYPE_MEDIUM_INTEGER:
             case DbSimpleTypes::TYPE_REF:
+            case DbSimpleTypes::TYPE_SMALL_ID:
+            case DbSimpleTypes::TYPE_SMALL_INT:
+            case DbSimpleTypes::TYPE_TINY_INT:
             case DbSimpleTypes::TYPE_USER_ID:
             case DbSimpleTypes::TYPE_USER_ID_ON_CREATE:
             case DbSimpleTypes::TYPE_USER_ID_ON_UPDATE:
@@ -3996,8 +4032,23 @@ MYSQL;
             case DbSimpleTypes::TYPE_OBJECT:
                 return 'object';
 
-            default:
+            case DbSimpleTypes::TYPE_BINARY:
+            case DbSimpleTypes::TYPE_STRING:
+            case DbSimpleTypes::TYPE_TEXT:
+            case DbSimpleTypes::TYPE_MEDIUM_TEXT:
+            case DbSimpleTypes::TYPE_LONG_TEXT:
+            case DbSimpleTypes::TYPE_BIG_ID: // due to php support issues
+            case DbSimpleTypes::TYPE_BIG_INT: // due to php support issues
                 return 'string';
+
+            case DbSimpleTypes::TYPE_JSON:
+            case DbSimpleTypes::TYPE_JSONB:
+            case DbSimpleTypes::TYPE_UUID:
+
+            case DbSimpleTypes::TYPE_COLUMN:
+            case DbSimpleTypes::TYPE_REF_CURSOR:
+            case DbSimpleTypes::TYPE_ROW:
+
         }
     }
 
@@ -4270,12 +4321,6 @@ MYSQL;
         }
     }
 
-    /**
-     * @param $value
-     * @param $field_info
-     *
-     * @return mixed
-     */
     public function parseValueForSet($value, $field_info)
     {
         return $value;
