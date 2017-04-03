@@ -2923,19 +2923,19 @@ abstract class BaseDbTableResource extends BaseDbResource
                     break;
 
                 case DbSimpleTypes::TYPE_DATE:
-                    $cfgFormat = Config::get('df.db_date_format');
+                    $cfgFormat = Config::get('df.db.date_format');
                     $outFormat = 'Y-m-d';
                     $value = DataFormatter::formatDateTime($outFormat, $value, $cfgFormat);
                     break;
 
                 case DbSimpleTypes::TYPE_TIME:
-                    $cfgFormat = Config::get('df.db_time_format');
+                    $cfgFormat = Config::get('df.db.time_format');
                     $outFormat = 'H:i:s.u';
                     $value = DataFormatter::formatDateTime($outFormat, $value, $cfgFormat);
                     break;
 
                 case DbSimpleTypes::TYPE_DATETIME:
-                    $cfgFormat = Config::get('df.db_datetime_format');
+                    $cfgFormat = Config::get('df.db.datetime_format');
                     $outFormat = 'Y-m-d H:i:s';
                     $value = DataFormatter::formatDateTime($outFormat, $value, $cfgFormat);
                     break;
@@ -2943,7 +2943,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                 case DbSimpleTypes::TYPE_TIMESTAMP:
                 case DbSimpleTypes::TYPE_TIMESTAMP_ON_CREATE:
                 case DbSimpleTypes::TYPE_TIMESTAMP_ON_UPDATE:
-                    $cfgFormat = Config::get('df.db_timestamp_format');
+                    $cfgFormat = Config::get('df.db.timestamp_format');
                     $outFormat = 'Y-m-d H:i:s';
                     $value = DataFormatter::formatDateTime($outFormat, $value, $cfgFormat);
                     break;
