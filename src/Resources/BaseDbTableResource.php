@@ -24,7 +24,6 @@ use DreamFactory\Core\Exceptions\NotImplementedException;
 use DreamFactory\Core\Exceptions\InternalServerErrorException;
 use DreamFactory\Core\Exceptions\RestException;
 use DreamFactory\Core\Models\Service;
-use DreamFactory\Core\Utility\DataFormatter;
 use DreamFactory\Core\Utility\ResourcesWrapper;
 use DreamFactory\Core\Utility\Session;
 use DreamFactory\Library\Utility\ArrayUtils;
@@ -2879,78 +2878,7 @@ abstract class BaseDbTableResource extends BaseDbResource
      */
     protected function parseValueForSet($value, $field_info, $for_update = false)
     {
-        if (!is_null($value)) {
-            switch ($field_info->type) {
-                case DbSimpleTypes::TYPE_BOOLEAN:
-                    $value = filter_var($value, FILTER_VALIDATE_BOOLEAN);
-                    break;
-
-                case DbSimpleTypes::TYPE_INTEGER:
-                case DbSimpleTypes::TYPE_INT:
-                case DbSimpleTypes::TYPE_SMALL_INT:
-                case DbSimpleTypes::TYPE_MEDIUM_INTEGER:
-                case DbSimpleTypes::TYPE_ID:
-                case DbSimpleTypes::TYPE_SMALL_ID:
-                case DbSimpleTypes::TYPE_MEDIUM_ID:
-                case DbSimpleTypes::TYPE_REF:
-                case DbSimpleTypes::TYPE_USER_ID:
-                case DbSimpleTypes::TYPE_USER_ID_ON_CREATE:
-                case DbSimpleTypes::TYPE_USER_ID_ON_UPDATE:
-                    if (!is_int($value)) {
-                        if (('' === $value) && $field_info->allowNull) {
-                            $value = null;
-                        } elseif (!is_numeric($value)) {
-                            throw new BadRequestException("Field '{$field_info->getName(true)}' must be a valid integer.");
-                        } else {
-                            if (!is_float($value)) { // bigint catch as float
-                                $value = intval($value);
-                            }
-                        }
-                    }
-                    break;
-
-                case DbSimpleTypes::TYPE_BIG_INT:
-                case DbSimpleTypes::TYPE_BIG_ID:
-                    break;
-
-                case DbSimpleTypes::TYPE_DECIMAL:
-                case DbSimpleTypes::TYPE_DOUBLE:
-                case DbSimpleTypes::TYPE_FLOAT:
-                    break;
-
-                case DbSimpleTypes::TYPE_STRING:
-                case DbSimpleTypes::TYPE_TEXT:
-                    break;
-
-                case DbSimpleTypes::TYPE_DATE:
-                    $cfgFormat = Config::get('df.db.date_format');
-                    $outFormat = 'Y-m-d';
-                    $value = DataFormatter::formatDateTime($outFormat, $value, $cfgFormat);
-                    break;
-
-                case DbSimpleTypes::TYPE_TIME:
-                    $cfgFormat = Config::get('df.db.time_format');
-                    $outFormat = 'H:i:s.u';
-                    $value = DataFormatter::formatDateTime($outFormat, $value, $cfgFormat);
-                    break;
-
-                case DbSimpleTypes::TYPE_DATETIME:
-                    $cfgFormat = Config::get('df.db.datetime_format');
-                    $outFormat = 'Y-m-d H:i:s';
-                    $value = DataFormatter::formatDateTime($outFormat, $value, $cfgFormat);
-                    break;
-
-                case DbSimpleTypes::TYPE_TIMESTAMP:
-                case DbSimpleTypes::TYPE_TIMESTAMP_ON_CREATE:
-                case DbSimpleTypes::TYPE_TIMESTAMP_ON_UPDATE:
-                    $cfgFormat = Config::get('df.db.timestamp_format');
-                    $outFormat = 'Y-m-d H:i:s';
-                    $value = DataFormatter::formatDateTime($outFormat, $value, $cfgFormat);
-                    break;
-            }
-
-            $value = $this->schema->parseValueForSet($value, $field_info);
-        }
+        $value = $this->schema->typecastToNative($value, $field_info);
 
         if (!empty($function = $field_info->getDbFunction($for_update ? DbFunctionUses::UPDATE : DbFunctionUses::INSERT))) {
             $function = str_ireplace('{value}', (is_string($value) ? "'$value'" : $value), $function);
