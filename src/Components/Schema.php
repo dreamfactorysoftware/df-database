@@ -3922,40 +3922,40 @@ MYSQL;
         switch (strtolower($type)) {
             case 'bit':
             case (false !== strpos($type, 'bool')):
-                return DbSimpleTypes::TYPE_BOOLEAN;
+                $value = DbSimpleTypes::TYPE_BOOLEAN;
                 break;
 
             case 'number': // Oracle for boolean, integers and decimals
                 if ($size == 1) {
-                    return DbSimpleTypes::TYPE_BOOLEAN;
+                    $value = DbSimpleTypes::TYPE_BOOLEAN;
                 } elseif (empty($scale)) {
-                    return DbSimpleTypes::TYPE_INTEGER;
+                    $value = DbSimpleTypes::TYPE_INTEGER;
                 } else {
-                    return DbSimpleTypes::TYPE_DECIMAL;
+                    $value = DbSimpleTypes::TYPE_DECIMAL;
                 }
                 break;
 
             case 'decimal':
             case 'numeric':
             case 'percent':
-                return DbSimpleTypes::TYPE_DECIMAL;
+                $value = DbSimpleTypes::TYPE_DECIMAL;
                 break;
 
             case (false !== strpos($type, 'double')):
-                return DbSimpleTypes::TYPE_DOUBLE;
+                $value = DbSimpleTypes::TYPE_DOUBLE;
                 break;
 
             case 'real':
             case (false !== strpos($type, 'float')):
                 if ($size == 53) {
-                    return DbSimpleTypes::TYPE_DOUBLE;
+                    $value = DbSimpleTypes::TYPE_DOUBLE;
                 } else {
-                    return DbSimpleTypes::TYPE_FLOAT;
+                    $value = DbSimpleTypes::TYPE_FLOAT;
                 }
                 break;
 
             case (false !== strpos($type, 'money')):
-                return DbSimpleTypes::TYPE_MONEY;
+                $value = DbSimpleTypes::TYPE_MONEY;
                 break;
 
             case 'binary_integer': // oracle integer
@@ -3966,80 +3966,91 @@ MYSQL;
             case 'integer':
                 // watch out for point here!
                 if ($size == 1) {
-                    return DbSimpleTypes::TYPE_BOOLEAN;
+                    $value = DbSimpleTypes::TYPE_BOOLEAN;
                 } else {
-                    return DbSimpleTypes::TYPE_INTEGER;
+                    $value = DbSimpleTypes::TYPE_INTEGER;
                 }
                 break;
 
+            case 'varint': // java type used in cassandra, possibly others, can be really big
             case 'bigint':
                 // bigint too big to represent as number in php
-                return DbSimpleTypes::TYPE_BIG_INT;
+                $value = DbSimpleTypes::TYPE_BIG_INT;
                 break;
 
             case (false !== strpos($type, 'timestamp')):
             case 'datetimeoffset': //  MSSQL
-                return DbSimpleTypes::TYPE_TIMESTAMP;
+                $value = DbSimpleTypes::TYPE_TIMESTAMP;
                 break;
 
             case (false !== strpos($type, 'datetime')):
-                return DbSimpleTypes::TYPE_DATETIME;
+                $value = DbSimpleTypes::TYPE_DATETIME;
                 break;
 
             case 'date':
-                return DbSimpleTypes::TYPE_DATE;
+                $value = DbSimpleTypes::TYPE_DATE;
+                break;
+
+            case 'timeuuid': // type 1 time-based UUID
+                $value = DbSimpleTypes::TYPE_TIME_UUID;
                 break;
 
             case (false !== strpos($type, 'time')):
-                return DbSimpleTypes::TYPE_TIME;
+                $value = DbSimpleTypes::TYPE_TIME;
                 break;
 
             case (false !== strpos($type, 'binary')):
             case (false !== strpos($type, 'blob')):
-                return DbSimpleTypes::TYPE_BINARY;
+                $value = DbSimpleTypes::TYPE_BINARY;
                 break;
 
             //	String types
             case (false !== strpos($type, 'clob')):
             case (false !== strpos($type, 'text')):
-                return DbSimpleTypes::TYPE_TEXT;
+                $value = DbSimpleTypes::TYPE_TEXT;
                 break;
 
             case 'varchar':
                 if ($size == -1) {
-                    return DbSimpleTypes::TYPE_TEXT; // varchar(max) in MSSQL
+                    $value = DbSimpleTypes::TYPE_TEXT; // varchar(max) in MSSQL
                 } else {
-                    return DbSimpleTypes::TYPE_STRING;
+                    $value = DbSimpleTypes::TYPE_STRING;
                 }
+                break;
+
+            case 'uuid':
+                $value = DbSimpleTypes::TYPE_UUID;
                 break;
 
             // common routine return types
             case 'ref cursor':
-                return DbSimpleTypes::TYPE_REF_CURSOR;
+                $value = DbSimpleTypes::TYPE_REF_CURSOR;
                 break;
 
             case 'table':
-                return DbSimpleTypes::TYPE_TABLE;
+                $value = DbSimpleTypes::TYPE_TABLE;
                 break;
 
             case 'array':
-                return DbSimpleTypes::TYPE_ARRAY;
+                $value = DbSimpleTypes::TYPE_ARRAY;
                 break;
 
             case 'column':
-                return DbSimpleTypes::TYPE_COLUMN;
+                $value = DbSimpleTypes::TYPE_COLUMN;
                 break;
 
             case 'row':
-                return DbSimpleTypes::TYPE_ROW;
+                $value = DbSimpleTypes::TYPE_ROW;
                 break;
 
             case 'string':
             case (false !== strpos($type, 'char')):
             default:
-                return DbSimpleTypes::TYPE_STRING;
+                $value = DbSimpleTypes::TYPE_STRING; // default to string to handle anything
                 break;
         }
+
+        return $value;
     }
 
     /**
@@ -4307,18 +4318,18 @@ MYSQL;
             case DbSimpleTypes::TYPE_USER_ID:
             case DbSimpleTypes::TYPE_USER_ID_ON_CREATE:
             case DbSimpleTypes::TYPE_USER_ID_ON_UPDATE:
-            if (!is_int($value)) {
-                if (('' === $value) && $field_info->allowNull) {
-                    $value = null;
+                if (!is_int($value)) {
+                    if (('' === $value) && $field_info->allowNull) {
+                        $value = null;
 //                    if (!(ctype_digit($value))) {
-                } elseif (!is_numeric($value)) {
-                    throw new BadRequestException("Field '{$field_info->getName(true)}' must be a valid integer.");
-                } else {
-                    if (!is_float($value)) { // bigint catch as float
-                        $value = intval($value);
+                    } elseif (!is_numeric($value)) {
+                        throw new BadRequestException("Field '{$field_info->getName(true)}' must be a valid integer.");
+                    } else {
+                        if (!is_float($value)) { // bigint catch as float
+                            $value = intval($value);
+                        }
                     }
                 }
-            }
                 break;
 
             case DbSimpleTypes::TYPE_DECIMAL:

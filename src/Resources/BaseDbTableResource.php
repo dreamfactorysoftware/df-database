@@ -439,14 +439,15 @@ abstract class BaseDbTableResource extends BaseDbResource
             $options[ApiOptions::FIELDS] = ApiOptions::FIELDS_ALL;
         }
 
-        if (!empty($this->resourceId)) {
+        if (!is_null($this->resourceId)) {
             //	Single resource by ID
             $result = $this->retrieveRecordById($tableName, $this->resourceId, $options);
 
             return $result;
         }
 
-        if (!empty($ids = array_get($options, ApiOptions::IDS))) {
+        $ids = array_get($options, ApiOptions::IDS);
+        if (!is_null($ids)) {
             //	Multiple resources by ID
             $result = $this->retrieveRecordsByIds($tableName, $ids, $options);
         } elseif (!empty($records = ResourcesWrapper::unwrapResources($this->getPayloadData()))) {
@@ -491,7 +492,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             throw new NotFoundException('Table "' . $this->resource . '" does not exist in the database.');
         }
 
-        if (!empty($this->resourceId)) {
+        if (!is_null($this->resourceId)) {
             throw new BadRequestException('Create record by identifier not currently supported.');
         }
 
@@ -537,7 +538,7 @@ abstract class BaseDbTableResource extends BaseDbResource
 
         $options = $this->request->getParameters();
 
-        if (!empty($this->resourceId)) {
+        if (!is_null($this->resourceId)) {
             return $this->updateRecordById($tableName, $this->getPayloadData(), $this->resourceId, $options);
         }
 
@@ -547,10 +548,8 @@ abstract class BaseDbTableResource extends BaseDbResource
         }
 
         $ids = array_get($options, ApiOptions::IDS);
-
-        if (!empty($ids)) {
+        if (!is_null($ids) && ('' !== $ids)) {
             $record = array_get($records, 0, $records);
-
             $result = $this->updateRecordsByIds($tableName, $record, $ids, $options);
         } else {
             $filter = array_get($options, ApiOptions::FILTER);
@@ -603,7 +602,7 @@ abstract class BaseDbTableResource extends BaseDbResource
 
         $options = $this->request->getParameters();
 
-        if (!empty($this->resourceId)) {
+        if (!is_null($this->resourceId)) {
             return $this->patchRecordById($tableName, $this->getPayloadData(), $this->resourceId, $options);
         }
 
@@ -613,8 +612,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         }
 
         $ids = array_get($options, ApiOptions::IDS);
-
-        if (!empty($ids)) {
+        if (!is_null($ids) && ('' !== $ids)) {
             $record = array_get($records, 0, $records);
             $result = $this->patchRecordsByIds($tableName, $record, $ids, $options);
         } else {
@@ -668,12 +666,12 @@ abstract class BaseDbTableResource extends BaseDbResource
 
         $options = $this->request->getParameters();
 
-        if (!empty($this->resourceId)) {
+        if (!is_null($this->resourceId)) {
             return $this->deleteRecordById($tableName, $this->resourceId, $options);
         }
 
         $ids = array_get($options, ApiOptions::IDS);
-        if (!empty($ids)) {
+        if (!is_null($ids) && ('' !== $ids)) {
             $result = $this->deleteRecordsByIds($tableName, $ids, $options);
         } else {
             $records = ResourcesWrapper::unwrapResources($this->getPayloadData());
@@ -1674,7 +1672,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         if (!empty($record)) {
             $this->batchRecords[] = $record;
         }
-        if (!empty($id)) {
+        if (!is_null($id)) {
             $this->batchIds[] = $id;
         }
 
@@ -2187,7 +2185,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             $insertMany = [];
             $updateMany = [];
             $id = array_get($parent, $pkFieldAlias);
-            if (empty($id)) {
+            if (is_null($id)) {
                 if (!$pkAutoSet) {
                     throw new BadRequestException("Related record has no primary key value for '$pkFieldAlias'.");
                 }
@@ -2287,7 +2285,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             $deleteMany = [];
             foreach ($many_records as $item) {
                 $id = array_get($item, $pkFieldAlias);
-                if (empty($id)) {
+                if (is_null($id)) {
                     if (!$pkAutoSet) {
                         throw new BadRequestException("Related record has no primary key value for '$pkFieldAlias'.");
                     }
@@ -2619,7 +2617,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             $refPkFieldAlias = $refPkField->getName(true);
             foreach ($many_records as $item) {
                 $id = array_get($item, $refPkFieldAlias);
-                if (empty($id)) {
+                if (is_null($id)) {
                     if (!$pkAutoSet) {
                         throw new BadRequestException("Related record has no primary key value for '$refPkFieldAlias'.");
                     }
@@ -2799,13 +2797,13 @@ abstract class BaseDbTableResource extends BaseDbResource
                 } else {
                     $value = $record;
                 }
-                if (!empty($value)) {
+                if (!is_null($value)) {
                     if (!is_array($value)) {
                         switch ($info->type) {
-                            case 'int':
+                            case DbSimpleTypes::TYPE_INTEGER:
                                 $value = intval($value);
                                 break;
-                            case 'string':
+                            case DbSimpleTypes::TYPE_STRING:
                                 $value = strval($value);
                                 break;
                         }
@@ -2830,13 +2828,13 @@ abstract class BaseDbTableResource extends BaseDbResource
                     } else {
                         $value = $record;
                     }
-                    if (!empty($value)) {
+                    if (!is_null($value)) {
                         if (!is_array($value)) {
                             switch ($info->type) {
-                                case 'int':
+                                case DbSimpleTypes::TYPE_INTEGER:
                                     $value = intval($value);
                                     break;
-                                case 'string':
+                                case DbSimpleTypes::TYPE_STRING:
                                     $value = strval($value);
                                     break;
                             }
@@ -2853,10 +2851,10 @@ abstract class BaseDbTableResource extends BaseDbResource
             }
         }
 
-        if (!empty($id)) {
+        if (!is_null($id)) {
             return $id;
         } elseif ($on_create) {
-            return [];
+            return null;
         }
 
         return false;
@@ -3518,7 +3516,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             if ($remove) {
                 unset($record[$field]);
             }
-            if (empty($id)) {
+            if (is_null($id)) {
                 throw new BadRequestException("Identifying field '$field' can not be empty for record.");
             }
 
