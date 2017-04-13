@@ -739,7 +739,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         $errors = false;
         foreach ($records as $index => $record) {
             try {
-                if (false === $id = static::checkForIds($record, $this->tableIdsInfo, $extras, true)) {
+                if (false === $id = $this->checkForIds($record, $this->tableIdsInfo, $extras, true)) {
                     throw new BadRequestException("Required id field(s) not found in record $index: " .
                         print_r($record, true));
                 }
@@ -832,7 +832,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         $errors = false;
         foreach ($records as $index => $record) {
             try {
-                if (false === $id = static::checkForIds($record, $this->tableIdsInfo, $extras)) {
+                if (false === $id = $this->checkForIds($record, $this->tableIdsInfo, $extras)) {
                     throw new BadRequestException("Required id field(s) not found in record $index: " .
                         print_r($record, true));
                 }
@@ -923,7 +923,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             throw new InternalServerErrorException("Identifying field(s) could not be determined.");
         }
 
-        $ids = static::recordsAsIds($records, $idsInfo);
+        $ids = $this->recordsAsIds($records, $idsInfo);
         if (empty($ids)) {
             return [];
         }
@@ -971,7 +971,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         $errors = false;
         foreach ($ids as $index => $id) {
             try {
-                if (false === $id = static::checkForIds($id, $this->tableIdsInfo, $extras, true)) {
+                if (false === $id = $this->checkForIds($id, $this->tableIdsInfo, $extras, true)) {
                     throw new BadRequestException("Required id field(s) not valid in request $index: " .
                         print_r($id, true));
                 }
@@ -1066,7 +1066,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         $errors = false;
         foreach ($records as $index => $record) {
             try {
-                if (false === $id = static::checkForIds($record, $this->tableIdsInfo, $extras)) {
+                if (false === $id = $this->checkForIds($record, $this->tableIdsInfo, $extras)) {
                     throw new BadRequestException("Required id field(s) not found in record $index: " .
                         print_r($record, true));
                 }
@@ -1158,7 +1158,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             throw new InternalServerErrorException("Identifying field(s) could not be determined.");
         }
 
-        $ids = static::recordsAsIds($records, $idsInfo);
+        $ids = $this->recordsAsIds($records, $idsInfo);
         if (empty($ids)) {
             return [];
         }
@@ -1204,7 +1204,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         $errors = false;
         foreach ($ids as $index => $id) {
             try {
-                if (false === $id = static::checkForIds($id, $this->tableIdsInfo, $extras, true)) {
+                if (false === $id = $this->checkForIds($id, $this->tableIdsInfo, $extras, true)) {
                     throw new BadRequestException("Required id field(s) not valid in request $index: " .
                         print_r($id, true));
                 }
@@ -1289,7 +1289,7 @@ abstract class BaseDbTableResource extends BaseDbResource
 
         $ids = [];
         foreach ($records as $record) {
-            $ids[] = static::checkForIds($record, $idsInfo, $extras);
+            $ids[] = $this->checkForIds($record, $idsInfo, $extras);
         }
 
         return $this->deleteRecordsByIds($table, $ids, $extras);
@@ -1349,7 +1349,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             throw new InternalServerErrorException("Identifying field(s) could not be determined.");
         }
 
-        $ids = static::recordsAsIds($records, $idsInfo, $extras);
+        $ids = $this->recordsAsIds($records, $idsInfo, $extras);
         if (empty($ids)) {
             return [];
         }
@@ -1390,7 +1390,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         $errors = false;
         foreach ($ids as $index => $id) {
             try {
-                if (false === $id = static::checkForIds($id, $this->tableIdsInfo, $extras, true)) {
+                if (false === $id = $this->checkForIds($id, $this->tableIdsInfo, $extras, true)) {
                     throw new BadRequestException("Required id field(s) not valid in request $index: " .
                         print_r($id, true));
                 }
@@ -1505,7 +1505,7 @@ abstract class BaseDbTableResource extends BaseDbResource
 
         $ids = [];
         foreach ($records as $record) {
-            $ids[] = static::checkForIds($record, $idsInfo, $extras);
+            $ids[] = $this->checkForIds($record, $idsInfo, $extras);
         }
 
         return $this->retrieveRecordsByIds($table, $ids, $extras);
@@ -1566,7 +1566,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         $errors = false;
         foreach ($ids as $index => $id) {
             try {
-                if (false === $id = static::checkForIds($id, $this->tableIdsInfo, $extras, true)) {
+                if (false === $id = $this->checkForIds($id, $this->tableIdsInfo, $extras, true)) {
                     throw new BadRequestException("Required id field(s) not valid in request $index: " .
                         print_r($id, true));
                 }
@@ -2011,6 +2011,10 @@ abstract class BaseDbTableResource extends BaseDbResource
                 // Get records
                 $refFieldName = $refField->getName(true);
                 $extras[ApiOptions::FILTER] = "($refFieldName IN (" . implode(',', $values) . '))';
+                $fields = array_get($extras, 'fields');
+                if ($removeLater = static::addToFields($fields, $refFieldName)) {
+                    $extras['fields'] = $fields;
+                }
                 $relatedRecords = $this->retrieveVirtualRecords($refService, '_table/' . $refTable, $extras);
 
                 // Map the records back to data
@@ -2022,6 +2026,9 @@ abstract class BaseDbTableResource extends BaseDbResource
 
                         foreach ($relatedRecords as $record) {
                             if ($fieldValue === array_get($record, $refFieldName)) {
+                                if ($removeLater) {
+                                    unset($record[$refFieldName]);
+                                }
                                 $data[$ndx][$relationName] = $record;
                                 continue 2; // belongs_to only supports one related per record
                             }
@@ -2045,6 +2052,10 @@ abstract class BaseDbTableResource extends BaseDbResource
                 // Get records
                 $refFieldName = $refField->getName(true);
                 $extras[ApiOptions::FILTER] = "($refFieldName IN (" . implode(',', $values) . '))';
+                $fields = array_get($extras, 'fields');
+                if ($removeLater = static::addToFields($fields, $refFieldName)) {
+                    $extras['fields'] = $fields;
+                }
                 $relatedRecords = $this->retrieveVirtualRecords($refService, '_table/' . $refTable, $extras);
 
                 // Map the records back to data
@@ -2056,6 +2067,9 @@ abstract class BaseDbTableResource extends BaseDbResource
 
                         foreach ($relatedRecords as $record) {
                             if ($fieldValue === array_get($record, $refFieldName)) {
+                                if ($removeLater) {
+                                    unset($record[$refFieldName]);
+                                }
                                 $data[$ndx][$relationName][] = $record;
                             }
                         }
@@ -2115,6 +2129,10 @@ abstract class BaseDbTableResource extends BaseDbResource
                         // Get records
                         $filter = $refFieldName . ' IN (' . implode(',', $relatedIds) . ')';
                         $extras[ApiOptions::FILTER] = $filter;
+                        $fields = array_get($extras, 'fields');
+                        if ($removeLater = static::addToFields($fields, $refFieldName)) {
+                            $extras['fields'] = $fields;
+                        }
                         $relatedRecords = $this->retrieveVirtualRecords($refService, '_table/' . $refTable, $extras);
 
                         // Map the records back to data
@@ -2129,6 +2147,9 @@ abstract class BaseDbTableResource extends BaseDbResource
                                         $rightValue = array_get($junction, $junctionRefFieldName);
                                         foreach ($relatedRecords as $record) {
                                             if ($rightValue === array_get($record, $refFieldName)) {
+                                                if ($removeLater) {
+                                                    unset($record[$refFieldName]);
+                                                }
                                                 $data[$ndx][$relationName][] = $record;
                                             }
                                         }
@@ -2782,7 +2803,7 @@ abstract class BaseDbTableResource extends BaseDbResource
      *
      * @return array|bool|int|mixed|null|string
      */
-    protected static function checkForIds(&$record, $ids_info, $extras = null, $on_create = false, $remove = false)
+    protected function checkForIds(&$record, $ids_info, $extras = null, $on_create = false, $remove = false)
     {
         $id = null;
         if (!empty($ids_info)) {
@@ -2799,14 +2820,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                 }
                 if (!is_null($value)) {
                     if (!is_array($value)) {
-                        switch ($info->type) {
-                            case DbSimpleTypes::TYPE_INTEGER:
-                                $value = intval($value);
-                                break;
-                            case DbSimpleTypes::TYPE_STRING:
-                                $value = strval($value);
-                                break;
-                        }
+                        $value = $this->schema->typecastToNative($value, $info);
                     }
                     $id = $value;
                 } else {
@@ -2830,14 +2844,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                     }
                     if (!is_null($value)) {
                         if (!is_array($value)) {
-                            switch ($info->type) {
-                                case DbSimpleTypes::TYPE_INTEGER:
-                                    $value = intval($value);
-                                    break;
-                                case DbSimpleTypes::TYPE_STRING:
-                                    $value = strval($value);
-                                    break;
-                            }
+                            $value = $this->schema->typecastToNative($value, $info);
                         }
                         $id[$name] = $value;
                     } else {
@@ -3465,12 +3472,12 @@ abstract class BaseDbTableResource extends BaseDbResource
      *
      * @return array
      */
-    protected static function recordsAsIds($records, $ids_info, $extras = null, $on_create = false, $remove = false)
+    protected function recordsAsIds($records, $ids_info, $extras = null, $on_create = false, $remove = false)
     {
         $out = [];
         if (!empty($records)) {
             foreach ($records as $record) {
-                $out[] = static::checkForIds($record, $ids_info, $extras, $on_create, $remove);
+                $out[] = $this->checkForIds($record, $ids_info, $extras, $on_create, $remove);
             }
         }
 
@@ -3778,6 +3785,25 @@ abstract class BaseDbTableResource extends BaseDbResource
         }
 
         return $record;
+    }
+
+    public static function addToFields(&$fields, $new_field)
+    {
+        if (!empty($fields) && ('*' !== $fields)) {
+            if (is_string($fields) &&
+                (false === strpos(',' . $fields . ',', ',' . str_replace(' ', '', $new_field) . ','))
+            ) {
+                $fields .= ',' . $new_field;
+
+                return true;
+            } elseif (is_array($fields) && !in_array($new_field, $fields)) {
+                $fields[] = $new_field;
+
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

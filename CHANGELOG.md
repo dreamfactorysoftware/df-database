@@ -7,6 +7,7 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 - DF-911 Add support for upsert
 ### Fixed
 - DF-1033 Correct datetime config option usage
+- DF-1008 Correct inconsistent behavior regarding selected fields and related data
 
 ## [0.2.0] - 2017-03-03
 ### Added
