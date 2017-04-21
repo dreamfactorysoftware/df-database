@@ -1098,14 +1098,10 @@ class Schema implements SchemaInterface
 
                     if (null !== $c = $table->getColumn($columnName)) {
                         $c->fill($extra);
-                        // may need to reevaluate internal types
-                        $c->phpType = static::extractPhpType($c->type);
                     } elseif (!empty($type) && (array_get($extra, 'is_virtual') || !static::PROVIDES_FIELD_SCHEMA)) {
                         $extra['name'] = $columnName;
                         $c = new ColumnSchema($extra);
                         $c->quotedName = $this->quoteColumnName($c->name);
-                        // may need to reevaluate internal types
-                        $c->phpType = static::extractPhpType($c->type);
                         $table->addColumn($c);
                     }
                 }
@@ -2275,7 +2271,9 @@ MYSQL;
                 }
 
                 $type = strtolower((string)array_get($field, 'type'));
-                if (!static::PROVIDES_FIELD_SCHEMA || array_get($extraNew, 'is_virtual', false) || $oldField->isVirtual) {
+                if (!static::PROVIDES_FIELD_SCHEMA || array_get($extraNew, 'is_virtual',
+                        false) || $oldField->isVirtual
+                ) {
                     if (!$oldField->isVirtual) {
                         throw new \Exception("Field '$name' already exists as non-virtual in table '{$table_schema->name}'.");
                     }
@@ -3061,96 +3059,6 @@ MYSQL;
     }
 
     /**
-     * @param mixed  $value
-     * @param string $type
-     *
-     * @return bool|int|null|string
-     */
-    public function formatValue($value, $type)
-    {
-        $type = strtolower(strval($type));
-        switch ($type) {
-            case 'int':
-            case 'integer':
-                return intval($value);
-
-            case 'decimal':
-            case 'double':
-            case 'float':
-                return floatval($value);
-
-            case 'boolean':
-            case 'bool':
-                return Scalar::boolval($value);
-
-            case 'string':
-                return strval($value);
-
-            case 'time':
-            case 'date':
-            case 'datetime':
-            case 'timestamp':
-                $cfgFormat = static::getDateTimeFormat($type);
-
-                return static::formatDateTime($cfgFormat, $value);
-        }
-
-        return $value;
-    }
-
-    /**
-     * @param $type
-     *
-     * @return mixed|null
-     */
-    public static function getDateTimeFormat($type)
-    {
-        switch (strtolower(strval($type))) {
-            case 'time':
-                return \Config::get('df.db_time_format');
-
-            case 'date':
-                return \Config::get('df.db_date_format');
-
-            case 'datetime':
-                return \Config::get('df.db_datetime_format');
-
-            case 'timestamp':
-                return \Config::get('df.db_timestamp_format');
-        }
-
-        return null;
-    }
-
-    /**
-     * @param      $out_format
-     * @param null $in_value
-     * @param null $in_format
-     *
-     * @return null|string
-     */
-    public static function formatDateTime($out_format, $in_value = null, $in_format = null)
-    {
-        //  If value is null, current date and time are returned
-        if (!empty($out_format)) {
-            $in_value = (is_string($in_value) || is_null($in_value)) ? $in_value : strval($in_value);
-            if (!empty($in_format)) {
-                if (false === $date = \DateTime::createFromFormat($in_format, $in_value)) {
-                    \Log::error("Failed to format datetime from '$in_value'' to '$in_format'");
-
-                    return $in_value;
-                }
-            } else {
-                $date = new \DateTime($in_value);
-            }
-
-            return $date->format($out_format);
-        }
-
-        return $in_value;
-    }
-
-    /**
      * Builds a SQL statement for creating a new DB view of an existing table.
      *
      *
@@ -3600,12 +3508,14 @@ MYSQL;
             if (1 == count($result)) {
                 $result = current($result);
                 if (array_key_exists('output', $result)) {
-                    return (is_null($result['output']) ? null : $this->formatValue($result['output'],
-                        $function->returnType));
+                    $value = $result['output'];
+
+                    return $this->typecastToClient($value, $function->returnType);
                 } elseif (array_key_exists($function->name, $result)) {
                     // some vendors return the results as the function's name
-                    return (is_null($result[$function->name]) ? null : $this->formatValue($result[$function->name],
-                        $function->returnType));
+                    $value = $result[$function->name];
+
+                    return $this->typecastToClient($value, $function->returnType);
                 }
             }
         }
@@ -3758,8 +3668,8 @@ MYSQL;
                 case 'OUT':
                 case 'INOUT':
                     if (array_key_exists($key, $values)) {
-                        $out_params[$paramSchema->name] =
-                            (is_null($values[$key]) ? null : $this->formatValue($values[$key], $paramSchema->type));
+                        $value = $values[$key];
+                        $out_params[$paramSchema->name] = $this->typecastToClient($value, $paramSchema);
                     }
                     break;
             }
@@ -3818,7 +3728,7 @@ MYSQL;
                     } else {
                         $value = $paramSchema->defaultValue;
                     }
-                    $values[$key] = (is_null($value) ? null : $this->formatValue($value, $paramSchema->type));
+                    $values[$key] = $this->typecastToClient($value, $paramSchema);
                     break;
                 case 'OUT':
                     $values[$key] = null;
@@ -3846,7 +3756,7 @@ MYSQL;
                     break;
                 case 'INOUT':
                 case 'OUT':
-                    $pdoType = $this->getPdoType($paramSchema->type);
+                    $pdoType = $this->extractPdoType($paramSchema->type);
 //                    $values[$key] = $this->formatValue($values[$key], $paramSchema->type);
                     $this->bindParam(
                         $statement, ':' . $paramSchema->name,
@@ -3943,6 +3853,44 @@ MYSQL;
     }
 
     /**
+     * Extracts the PHP type from DF type.
+     *
+     * @param string $type DF type
+     *
+     * @return string
+     */
+    public static function extractPhpType($type)
+    {
+        return DbSimpleTypes::toPhpType($type);
+    }
+
+    /**
+     * Extracts the PHP PDO type from DF type.
+     *
+     * @param string $type DF type
+     *
+     * @return int|null
+     */
+    public static function extractPdoType($type)
+    {
+        switch ($type) {
+            case DbSimpleTypes::TYPE_BINARY:
+                return \PDO::PARAM_LOB;
+            default:
+                switch (static::extractPhpType($type)) {
+                    case 'boolean':
+                        return \PDO::PARAM_BOOL;
+                    case 'int':
+                        return \PDO::PARAM_INT;
+                    case 'string':
+                        return \PDO::PARAM_STR;
+                }
+        }
+
+        return null;
+    }
+
+    /**
      * Determines the PDO type for the specified PHP type.
      *
      * @param string $type The PHP type (obtained by gettype() call).
@@ -3963,76 +3911,6 @@ MYSQL;
     }
 
     /**
-     * Extracts the PHP type from DF type.
-     *
-     * @param string $type DF type
-     *
-     * @return string
-     */
-    public static function extractPhpType($type)
-    {
-        switch ($type) {
-            case DbSimpleTypes::TYPE_BOOLEAN:
-                return 'boolean';
-
-            case DbSimpleTypes::TYPE_INTEGER:
-            case DbSimpleTypes::TYPE_ID:
-            case DbSimpleTypes::TYPE_REF:
-            case DbSimpleTypes::TYPE_USER_ID:
-            case DbSimpleTypes::TYPE_USER_ID_ON_CREATE:
-            case DbSimpleTypes::TYPE_USER_ID_ON_UPDATE:
-                return 'integer';
-
-            case DbSimpleTypes::TYPE_DECIMAL:
-            case DbSimpleTypes::TYPE_DOUBLE:
-            case DbSimpleTypes::TYPE_FLOAT:
-            case DbSimpleTypes::TYPE_MONEY:
-                return 'double';
-
-            case DbSimpleTypes::TYPE_ARRAY:
-            case DbSimpleTypes::TYPE_TABLE:
-                return 'array';
-
-            case DbSimpleTypes::TYPE_OBJECT:
-                return 'object';
-
-            default:
-                return 'string';
-        }
-    }
-
-    /**
-     * Extracts the PHP PDO type from DF type.
-     *
-     * @param string $type DF type
-     *
-     * @return int|null
-     */
-    public static function extractPdoType($type)
-    {
-        switch ($type) {
-            case DbSimpleTypes::TYPE_BOOLEAN:
-                return \PDO::PARAM_BOOL;
-
-            case DbSimpleTypes::TYPE_INTEGER:
-            case DbSimpleTypes::TYPE_ID:
-            case DbSimpleTypes::TYPE_REF:
-            case DbSimpleTypes::TYPE_USER_ID:
-            case DbSimpleTypes::TYPE_USER_ID_ON_CREATE:
-            case DbSimpleTypes::TYPE_USER_ID_ON_UPDATE:
-                return \PDO::PARAM_INT;
-
-            case DbSimpleTypes::TYPE_BINARY:
-                return \PDO::PARAM_LOB;
-
-            case DbSimpleTypes::TYPE_STRING:
-                return \PDO::PARAM_STR;
-        }
-
-        return null;
-    }
-
-    /**
      * @param      $type
      * @param null $size
      * @param null $scale
@@ -4044,40 +3922,40 @@ MYSQL;
         switch (strtolower($type)) {
             case 'bit':
             case (false !== strpos($type, 'bool')):
-                return DbSimpleTypes::TYPE_BOOLEAN;
+                $value = DbSimpleTypes::TYPE_BOOLEAN;
                 break;
 
             case 'number': // Oracle for boolean, integers and decimals
                 if ($size == 1) {
-                    return DbSimpleTypes::TYPE_BOOLEAN;
+                    $value = DbSimpleTypes::TYPE_BOOLEAN;
                 } elseif (empty($scale)) {
-                    return DbSimpleTypes::TYPE_INTEGER;
+                    $value = DbSimpleTypes::TYPE_INTEGER;
                 } else {
-                    return DbSimpleTypes::TYPE_DECIMAL;
+                    $value = DbSimpleTypes::TYPE_DECIMAL;
                 }
                 break;
 
             case 'decimal':
             case 'numeric':
             case 'percent':
-                return DbSimpleTypes::TYPE_DECIMAL;
+                $value = DbSimpleTypes::TYPE_DECIMAL;
                 break;
 
             case (false !== strpos($type, 'double')):
-                return DbSimpleTypes::TYPE_DOUBLE;
+                $value = DbSimpleTypes::TYPE_DOUBLE;
                 break;
 
             case 'real':
             case (false !== strpos($type, 'float')):
                 if ($size == 53) {
-                    return DbSimpleTypes::TYPE_DOUBLE;
+                    $value = DbSimpleTypes::TYPE_DOUBLE;
                 } else {
-                    return DbSimpleTypes::TYPE_FLOAT;
+                    $value = DbSimpleTypes::TYPE_FLOAT;
                 }
                 break;
 
             case (false !== strpos($type, 'money')):
-                return DbSimpleTypes::TYPE_MONEY;
+                $value = DbSimpleTypes::TYPE_MONEY;
                 break;
 
             case 'binary_integer': // oracle integer
@@ -4088,80 +3966,91 @@ MYSQL;
             case 'integer':
                 // watch out for point here!
                 if ($size == 1) {
-                    return DbSimpleTypes::TYPE_BOOLEAN;
+                    $value = DbSimpleTypes::TYPE_BOOLEAN;
                 } else {
-                    return DbSimpleTypes::TYPE_INTEGER;
+                    $value = DbSimpleTypes::TYPE_INTEGER;
                 }
                 break;
 
+            case 'varint': // java type used in cassandra, possibly others, can be really big
             case 'bigint':
                 // bigint too big to represent as number in php
-                return DbSimpleTypes::TYPE_BIG_INT;
+                $value = DbSimpleTypes::TYPE_BIG_INT;
                 break;
 
             case (false !== strpos($type, 'timestamp')):
             case 'datetimeoffset': //  MSSQL
-                return DbSimpleTypes::TYPE_TIMESTAMP;
+                $value = DbSimpleTypes::TYPE_TIMESTAMP;
                 break;
 
             case (false !== strpos($type, 'datetime')):
-                return DbSimpleTypes::TYPE_DATETIME;
+                $value = DbSimpleTypes::TYPE_DATETIME;
                 break;
 
             case 'date':
-                return DbSimpleTypes::TYPE_DATE;
+                $value = DbSimpleTypes::TYPE_DATE;
+                break;
+
+            case 'timeuuid': // type 1 time-based UUID
+                $value = DbSimpleTypes::TYPE_TIME_UUID;
                 break;
 
             case (false !== strpos($type, 'time')):
-                return DbSimpleTypes::TYPE_TIME;
+                $value = DbSimpleTypes::TYPE_TIME;
                 break;
 
             case (false !== strpos($type, 'binary')):
             case (false !== strpos($type, 'blob')):
-                return DbSimpleTypes::TYPE_BINARY;
+                $value = DbSimpleTypes::TYPE_BINARY;
                 break;
 
             //	String types
             case (false !== strpos($type, 'clob')):
             case (false !== strpos($type, 'text')):
-                return DbSimpleTypes::TYPE_TEXT;
+                $value = DbSimpleTypes::TYPE_TEXT;
                 break;
 
             case 'varchar':
                 if ($size == -1) {
-                    return DbSimpleTypes::TYPE_TEXT; // varchar(max) in MSSQL
+                    $value = DbSimpleTypes::TYPE_TEXT; // varchar(max) in MSSQL
                 } else {
-                    return DbSimpleTypes::TYPE_STRING;
+                    $value = DbSimpleTypes::TYPE_STRING;
                 }
+                break;
+
+            case 'uuid':
+                $value = DbSimpleTypes::TYPE_UUID;
                 break;
 
             // common routine return types
             case 'ref cursor':
-                return DbSimpleTypes::TYPE_REF_CURSOR;
+                $value = DbSimpleTypes::TYPE_REF_CURSOR;
                 break;
 
             case 'table':
-                return DbSimpleTypes::TYPE_TABLE;
+                $value = DbSimpleTypes::TYPE_TABLE;
                 break;
 
             case 'array':
-                return DbSimpleTypes::TYPE_ARRAY;
+                $value = DbSimpleTypes::TYPE_ARRAY;
                 break;
 
             case 'column':
-                return DbSimpleTypes::TYPE_COLUMN;
+                $value = DbSimpleTypes::TYPE_COLUMN;
                 break;
 
             case 'row':
-                return DbSimpleTypes::TYPE_ROW;
+                $value = DbSimpleTypes::TYPE_ROW;
                 break;
 
             case 'string':
             case (false !== strpos($type, 'char')):
             default:
-                return DbSimpleTypes::TYPE_STRING;
+                $value = DbSimpleTypes::TYPE_STRING; // default to string to handle anything
                 break;
         }
+
+        return $value;
     }
 
     /**
@@ -4176,7 +4065,6 @@ MYSQL;
         $dbType = strtolower($simpleType ?: $dbType);
 
         $column->type = static::extractSimpleType($dbType, $column->size, $column->scale);
-        $column->phpType = static::extractPhpType($column->type);
     }
 
     /**
@@ -4239,45 +4127,242 @@ MYSQL;
      */
     public function extractDefault(ColumnSchema $field, $defaultValue)
     {
-        $field->defaultValue = $this->typecast($field, $defaultValue);
+        $phpType = DbSimpleTypes::toPhpType($field->type);
+        $field->defaultValue = $this->formatValueToPhpType($defaultValue, $phpType);
     }
 
-    /**
-     * Converts the input value to the type that this column is of.
-     *
-     * @param ColumnSchema $field
-     * @param mixed        $value input value
-     * @return mixed converted value
-     */
-    public function typecast(ColumnSchema $field, $value)
+    protected function formatValueToPhpType($value, $type, $allow_null = true)
     {
-        if (gettype($value) === $field->phpType || $value === null || $value instanceof Expression) {
+        if (gettype($value) === $type || (is_null($value) && $allow_null) || $value instanceof Expression) {
             return $value;
         }
-        if ($value === '' && $field->allowNull) {
-            return ($field->phpType === 'string') ? '' : null;
-        }
-        switch ($field->phpType) {
-            case 'string':
-                return (string)$value;
+
+        switch (strtolower(strval($type))) {
+            case 'int':
             case 'integer':
-                return (integer)$value;
+                return intval($value);
+            case 'bool':
             case 'boolean':
-                return (boolean)$value;
+                return Scalar::boolval($value);
             case 'double':
-            default:
-                return $value;
+            case 'float':
+                return floatval($value);
+            case 'string':
+                return strval($value);
         }
+
+        return $value;
     }
 
     /**
-     * @param $value
-     * @param $field_info
+     * @param mixed                               $value
+     * @param string|ParameterSchema|ColumnSchema $field_info
+     * @param boolean                             $allow_null
      *
      * @return mixed
      */
-    public function parseValueForSet($value, $field_info)
+    public function typecastToClient($value, $field_info, $allow_null = true)
     {
+        if (is_null($value) && $allow_null) {
+            return null;
+        }
+
+        $type = DbSimpleTypes::TYPE_STRING;
+        if (is_string($field_info)) {
+            $type = $field_info;
+        } elseif ($field_info instanceof ColumnSchema) {
+            $type = $field_info->type;
+        } elseif ($field_info instanceof ParameterSchema) {
+            $type = $field_info->type;
+        }
+
+        $type = strtolower(strval($type));
+        switch ($type) {
+            // special handling for datetime types
+            case DbSimpleTypes::TYPE_DATE:
+            case DbSimpleTypes::TYPE_DATETIME:
+            case DbSimpleTypes::TYPE_DATETIME_TZ:
+            case DbSimpleTypes::TYPE_TIME:
+            case DbSimpleTypes::TYPE_TIME_TZ:
+            case DbSimpleTypes::TYPE_TIMESTAMP:
+            case DbSimpleTypes::TYPE_TIMESTAMP_TZ:
+            case DbSimpleTypes::TYPE_TIMESTAMP_ON_CREATE:
+            case DbSimpleTypes::TYPE_TIMESTAMP_ON_UPDATE:
+                return static::formatDateTime(
+                    static::getConfigDateTimeFormat($type),
+                    $value,
+                    static::getNativeDateTimeFormat($type)
+                );
+        }
+
+        return $this->formatValueToPhpType($value, $this->extractPhpType($type));
+    }
+
+    /**
+     * @param $type
+     *
+     * @return mixed|null
+     */
+    public static function getConfigDateTimeFormat($type)
+    {
+        switch (strtolower(strval($type))) {
+            case DbSimpleTypes::TYPE_TIME:
+            case DbSimpleTypes::TYPE_TIME_TZ:
+                return \Config::get('df.db.time_format');
+
+            case DbSimpleTypes::TYPE_DATE:
+                return \Config::get('df.db.date_format');
+
+            case DbSimpleTypes::TYPE_DATETIME:
+            case DbSimpleTypes::TYPE_DATETIME_TZ:
+                return \Config::get('df.db.datetime_format');
+
+            case DbSimpleTypes::TYPE_TIMESTAMP:
+            case DbSimpleTypes::TYPE_TIMESTAMP_TZ:
+            case DbSimpleTypes::TYPE_TIMESTAMP_ON_CREATE:
+            case DbSimpleTypes::TYPE_TIMESTAMP_ON_UPDATE:
+                return \Config::get('df.db.timestamp_format');
+        }
+
+        return null;
+    }
+
+    /**
+     * @param $type
+     *
+     * @return mixed|null
+     */
+    public static function getNativeDateTimeFormat($type)
+    {
+        switch (strtolower(strval($type))) {
+            case DbSimpleTypes::TYPE_TIME:
+            case DbSimpleTypes::TYPE_TIME_TZ:
+                return 'H:i:s';
+
+            case DbSimpleTypes::TYPE_DATE:
+                return 'Y-m-d';
+
+            case DbSimpleTypes::TYPE_DATETIME:
+            case DbSimpleTypes::TYPE_DATETIME_TZ:
+                return 'Y-m-d H:i:s';
+
+            case DbSimpleTypes::TYPE_TIMESTAMP:
+            case DbSimpleTypes::TYPE_TIMESTAMP_TZ:
+            case DbSimpleTypes::TYPE_TIMESTAMP_ON_CREATE:
+            case DbSimpleTypes::TYPE_TIMESTAMP_ON_UPDATE:
+                return 'Y-m-d H:i:s';
+        }
+
+        return null;
+    }
+
+    /**
+     * @param      $out_format
+     * @param null $in_value
+     * @param null $in_format
+     *
+     * @return null|string
+     */
+    public static function formatDateTime($out_format, $in_value = null, $in_format = null)
+    {
+        //  If value is null, current date and time are returned
+        if (!empty($out_format)) {
+            $in_value = (is_string($in_value) || is_null($in_value)) ? $in_value : strval($in_value);
+            if (!empty($in_format)) {
+                if (false === $date = \DateTime::createFromFormat($in_format, $in_value)) {
+                    \Log::error("Failed to create datetime with '$in_value' as format '$in_format'");
+                    try {
+                        $date = new \DateTime($in_value);
+                    } catch (\Exception $e) {
+                        \Log::error("Failed to create datetime from '$in_value': " . $e->getMessage());
+
+                        return $in_value;
+                    }
+                }
+            } else {
+                try {
+                    $date = new \DateTime($in_value);
+                } catch (\Exception $e) {
+                    \Log::error("Failed to create datetime from '$in_value': " . $e->getMessage());
+
+                    return $in_value;
+                }
+            }
+
+            return $date->format($out_format);
+        }
+
+        return $in_value;
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    public function typecastToNative($value, $field_info, $allow_null = true)
+    {
+        if (is_null($value) && $field_info->allowNull) {
+            return null;
+        }
+
+        switch ($field_info->type) {
+            case DbSimpleTypes::TYPE_BOOLEAN:
+                $value = filter_var($value, FILTER_VALIDATE_BOOLEAN);
+                if (preg_match('/(int|num|bit)/', $field_info->dbType)) {
+                    $value = ($value ? 1 : 0);
+                }
+                break;
+
+            case DbSimpleTypes::TYPE_INTEGER:
+            case DbSimpleTypes::TYPE_ID:
+            case DbSimpleTypes::TYPE_REF:
+            case DbSimpleTypes::TYPE_USER_ID:
+            case DbSimpleTypes::TYPE_USER_ID_ON_CREATE:
+            case DbSimpleTypes::TYPE_USER_ID_ON_UPDATE:
+                if (!is_int($value)) {
+                    if (('' === $value) && $field_info->allowNull) {
+                        $value = null;
+//                    if (!(ctype_digit($value))) {
+                    } elseif (!is_numeric($value)) {
+                        throw new BadRequestException("Field '{$field_info->getName(true)}' must be a valid integer.");
+                    } else {
+                        if (!is_float($value)) { // bigint catch as float
+                            $value = intval($value);
+                        }
+                    }
+                }
+                break;
+
+            case DbSimpleTypes::TYPE_DECIMAL:
+            case DbSimpleTypes::TYPE_DOUBLE:
+            case DbSimpleTypes::TYPE_FLOAT:
+                $value = floatval($value);
+                break;
+
+            case DbSimpleTypes::TYPE_STRING:
+            case DbSimpleTypes::TYPE_TEXT:
+                break;
+
+            // special checks
+            case DbSimpleTypes::TYPE_DATE:
+            case DbSimpleTypes::TYPE_DATETIME:
+            case DbSimpleTypes::TYPE_DATETIME_TZ:
+            case DbSimpleTypes::TYPE_TIME:
+            case DbSimpleTypes::TYPE_TIME_TZ:
+            case DbSimpleTypes::TYPE_TIMESTAMP:
+            case DbSimpleTypes::TYPE_TIMESTAMP_TZ:
+            case DbSimpleTypes::TYPE_TIMESTAMP_ON_CREATE:
+            case DbSimpleTypes::TYPE_TIMESTAMP_ON_UPDATE:
+                $value = $this->formatDateTime(
+                    static::getNativeDateTimeFormat($field_info->type),
+                    $value,
+                    static::getConfigDateTimeFormat($field_info->type)
+                );
+                break;
+
+            default:
+                break;
+        }
+
         return $value;
     }
 }

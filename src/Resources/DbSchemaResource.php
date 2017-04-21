@@ -9,11 +9,11 @@ use DreamFactory\Core\Database\Schema\TableSchema;
 use DreamFactory\Core\Enums\ApiOptions;
 use DreamFactory\Core\Enums\DbResourceTypes;
 use DreamFactory\Core\Enums\VerbsMask;
+use DreamFactory\Core\Events\ServiceModifiedEvent;
 use DreamFactory\Core\Exceptions\InternalServerErrorException;
 use DreamFactory\Core\Exceptions\NotFoundException;
 use DreamFactory\Core\Exceptions\RestException;
-use DreamFactory\Core\Resources\System\Event;
-use DreamFactory\Core\Services\Swagger;
+use DreamFactory\Core\Models\Service;
 use DreamFactory\Core\Utility\ResourcesWrapper;
 use DreamFactory\Core\Exceptions\BadRequestException;
 use DreamFactory\Library\Utility\Enums\Verbs;
@@ -150,9 +150,12 @@ class DbSchemaResource extends BaseDbResource
     public function refreshCachedTables()
     {
         $this->parent->refreshTableCache();
-        // Any changes to tables needs to produce a new event list
-        Event::clearCache();
-        Swagger::clearCache($this->getServiceName());
+        event(new ServiceModifiedEvent(
+            new Service([
+                'id'   => $this->getServiceId(),
+                'name' => $this->getServiceName()
+            ])
+        ));
     }
 
     /**
@@ -1439,7 +1442,7 @@ class DbSchemaResource extends BaseDbResource
     public function doesTableExist($name, $returnName = false)
     {
         if (false !== $result = $this->parent->getSchema()->doesResourceExist(DbResourceTypes::TYPE_TABLE, $name,
-            $returnName)
+                $returnName)
         ) {
             return $result;
         }

@@ -24,7 +24,6 @@ use DreamFactory\Core\Exceptions\NotImplementedException;
 use DreamFactory\Core\Exceptions\InternalServerErrorException;
 use DreamFactory\Core\Exceptions\RestException;
 use DreamFactory\Core\Models\Service;
-use DreamFactory\Core\Utility\DataFormatter;
 use DreamFactory\Core\Utility\ResourcesWrapper;
 use DreamFactory\Core\Utility\Session;
 use DreamFactory\Library\Utility\ArrayUtils;
@@ -440,14 +439,15 @@ abstract class BaseDbTableResource extends BaseDbResource
             $options[ApiOptions::FIELDS] = ApiOptions::FIELDS_ALL;
         }
 
-        if (!empty($this->resourceId)) {
+        if (!is_null($this->resourceId)) {
             //	Single resource by ID
             $result = $this->retrieveRecordById($tableName, $this->resourceId, $options);
 
             return $result;
         }
 
-        if (!empty($ids = array_get($options, ApiOptions::IDS))) {
+        $ids = array_get($options, ApiOptions::IDS);
+        if (!is_null($ids)) {
             //	Multiple resources by ID
             $result = $this->retrieveRecordsByIds($tableName, $ids, $options);
         } elseif (!empty($records = ResourcesWrapper::unwrapResources($this->getPayloadData()))) {
@@ -492,7 +492,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             throw new NotFoundException('Table "' . $this->resource . '" does not exist in the database.');
         }
 
-        if (!empty($this->resourceId)) {
+        if (!is_null($this->resourceId)) {
             throw new BadRequestException('Create record by identifier not currently supported.');
         }
 
@@ -538,7 +538,7 @@ abstract class BaseDbTableResource extends BaseDbResource
 
         $options = $this->request->getParameters();
 
-        if (!empty($this->resourceId)) {
+        if (!is_null($this->resourceId)) {
             return $this->updateRecordById($tableName, $this->getPayloadData(), $this->resourceId, $options);
         }
 
@@ -548,10 +548,8 @@ abstract class BaseDbTableResource extends BaseDbResource
         }
 
         $ids = array_get($options, ApiOptions::IDS);
-
-        if (!empty($ids)) {
+        if (!is_null($ids) && ('' !== $ids)) {
             $record = array_get($records, 0, $records);
-
             $result = $this->updateRecordsByIds($tableName, $record, $ids, $options);
         } else {
             $filter = array_get($options, ApiOptions::FILTER);
@@ -604,7 +602,7 @@ abstract class BaseDbTableResource extends BaseDbResource
 
         $options = $this->request->getParameters();
 
-        if (!empty($this->resourceId)) {
+        if (!is_null($this->resourceId)) {
             return $this->patchRecordById($tableName, $this->getPayloadData(), $this->resourceId, $options);
         }
 
@@ -614,8 +612,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         }
 
         $ids = array_get($options, ApiOptions::IDS);
-
-        if (!empty($ids)) {
+        if (!is_null($ids) && ('' !== $ids)) {
             $record = array_get($records, 0, $records);
             $result = $this->patchRecordsByIds($tableName, $record, $ids, $options);
         } else {
@@ -669,12 +666,12 @@ abstract class BaseDbTableResource extends BaseDbResource
 
         $options = $this->request->getParameters();
 
-        if (!empty($this->resourceId)) {
+        if (!is_null($this->resourceId)) {
             return $this->deleteRecordById($tableName, $this->resourceId, $options);
         }
 
         $ids = array_get($options, ApiOptions::IDS);
-        if (!empty($ids)) {
+        if (!is_null($ids) && ('' !== $ids)) {
             $result = $this->deleteRecordsByIds($tableName, $ids, $options);
         } else {
             $records = ResourcesWrapper::unwrapResources($this->getPayloadData());
@@ -742,7 +739,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         $errors = false;
         foreach ($records as $index => $record) {
             try {
-                if (false === $id = static::checkForIds($record, $this->tableIdsInfo, $extras, true)) {
+                if (false === $id = $this->checkForIds($record, $this->tableIdsInfo, $extras, true)) {
                     throw new BadRequestException("Required id field(s) not found in record $index: " .
                         print_r($record, true));
                 }
@@ -835,7 +832,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         $errors = false;
         foreach ($records as $index => $record) {
             try {
-                if (false === $id = static::checkForIds($record, $this->tableIdsInfo, $extras)) {
+                if (false === $id = $this->checkForIds($record, $this->tableIdsInfo, $extras)) {
                     throw new BadRequestException("Required id field(s) not found in record $index: " .
                         print_r($record, true));
                 }
@@ -926,7 +923,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             throw new InternalServerErrorException("Identifying field(s) could not be determined.");
         }
 
-        $ids = static::recordsAsIds($records, $idsInfo);
+        $ids = $this->recordsAsIds($records, $idsInfo);
         if (empty($ids)) {
             return [];
         }
@@ -974,7 +971,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         $errors = false;
         foreach ($ids as $index => $id) {
             try {
-                if (false === $id = static::checkForIds($id, $this->tableIdsInfo, $extras, true)) {
+                if (false === $id = $this->checkForIds($id, $this->tableIdsInfo, $extras, true)) {
                     throw new BadRequestException("Required id field(s) not valid in request $index: " .
                         print_r($id, true));
                 }
@@ -1069,7 +1066,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         $errors = false;
         foreach ($records as $index => $record) {
             try {
-                if (false === $id = static::checkForIds($record, $this->tableIdsInfo, $extras)) {
+                if (false === $id = $this->checkForIds($record, $this->tableIdsInfo, $extras)) {
                     throw new BadRequestException("Required id field(s) not found in record $index: " .
                         print_r($record, true));
                 }
@@ -1161,7 +1158,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             throw new InternalServerErrorException("Identifying field(s) could not be determined.");
         }
 
-        $ids = static::recordsAsIds($records, $idsInfo);
+        $ids = $this->recordsAsIds($records, $idsInfo);
         if (empty($ids)) {
             return [];
         }
@@ -1207,7 +1204,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         $errors = false;
         foreach ($ids as $index => $id) {
             try {
-                if (false === $id = static::checkForIds($id, $this->tableIdsInfo, $extras, true)) {
+                if (false === $id = $this->checkForIds($id, $this->tableIdsInfo, $extras, true)) {
                     throw new BadRequestException("Required id field(s) not valid in request $index: " .
                         print_r($id, true));
                 }
@@ -1292,7 +1289,7 @@ abstract class BaseDbTableResource extends BaseDbResource
 
         $ids = [];
         foreach ($records as $record) {
-            $ids[] = static::checkForIds($record, $idsInfo, $extras);
+            $ids[] = $this->checkForIds($record, $idsInfo, $extras);
         }
 
         return $this->deleteRecordsByIds($table, $ids, $extras);
@@ -1352,7 +1349,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             throw new InternalServerErrorException("Identifying field(s) could not be determined.");
         }
 
-        $ids = static::recordsAsIds($records, $idsInfo, $extras);
+        $ids = $this->recordsAsIds($records, $idsInfo, $extras);
         if (empty($ids)) {
             return [];
         }
@@ -1393,7 +1390,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         $errors = false;
         foreach ($ids as $index => $id) {
             try {
-                if (false === $id = static::checkForIds($id, $this->tableIdsInfo, $extras, true)) {
+                if (false === $id = $this->checkForIds($id, $this->tableIdsInfo, $extras, true)) {
                     throw new BadRequestException("Required id field(s) not valid in request $index: " .
                         print_r($id, true));
                 }
@@ -1508,7 +1505,7 @@ abstract class BaseDbTableResource extends BaseDbResource
 
         $ids = [];
         foreach ($records as $record) {
-            $ids[] = static::checkForIds($record, $idsInfo, $extras);
+            $ids[] = $this->checkForIds($record, $idsInfo, $extras);
         }
 
         return $this->retrieveRecordsByIds($table, $ids, $extras);
@@ -1569,7 +1566,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         $errors = false;
         foreach ($ids as $index => $id) {
             try {
-                if (false === $id = static::checkForIds($id, $this->tableIdsInfo, $extras, true)) {
+                if (false === $id = $this->checkForIds($id, $this->tableIdsInfo, $extras, true)) {
                     throw new BadRequestException("Required id field(s) not valid in request $index: " .
                         print_r($id, true));
                 }
@@ -1675,7 +1672,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         if (!empty($record)) {
             $this->batchRecords[] = $record;
         }
-        if (!empty($id)) {
+        if (!is_null($id)) {
             $this->batchIds[] = $id;
         }
 
@@ -2014,6 +2011,10 @@ abstract class BaseDbTableResource extends BaseDbResource
                 // Get records
                 $refFieldName = $refField->getName(true);
                 $extras[ApiOptions::FILTER] = "($refFieldName IN (" . implode(',', $values) . '))';
+                $fields = array_get($extras, 'fields');
+                if ($removeLater = static::addToFields($fields, $refFieldName)) {
+                    $extras['fields'] = $fields;
+                }
                 $relatedRecords = $this->retrieveVirtualRecords($refService, '_table/' . $refTable, $extras);
 
                 // Map the records back to data
@@ -2025,6 +2026,9 @@ abstract class BaseDbTableResource extends BaseDbResource
 
                         foreach ($relatedRecords as $record) {
                             if ($fieldValue === array_get($record, $refFieldName)) {
+                                if ($removeLater) {
+                                    unset($record[$refFieldName]);
+                                }
                                 $data[$ndx][$relationName] = $record;
                                 continue 2; // belongs_to only supports one related per record
                             }
@@ -2048,6 +2052,10 @@ abstract class BaseDbTableResource extends BaseDbResource
                 // Get records
                 $refFieldName = $refField->getName(true);
                 $extras[ApiOptions::FILTER] = "($refFieldName IN (" . implode(',', $values) . '))';
+                $fields = array_get($extras, 'fields');
+                if ($removeLater = static::addToFields($fields, $refFieldName)) {
+                    $extras['fields'] = $fields;
+                }
                 $relatedRecords = $this->retrieveVirtualRecords($refService, '_table/' . $refTable, $extras);
 
                 // Map the records back to data
@@ -2059,6 +2067,9 @@ abstract class BaseDbTableResource extends BaseDbResource
 
                         foreach ($relatedRecords as $record) {
                             if ($fieldValue === array_get($record, $refFieldName)) {
+                                if ($removeLater) {
+                                    unset($record[$refFieldName]);
+                                }
                                 $data[$ndx][$relationName][] = $record;
                             }
                         }
@@ -2118,6 +2129,10 @@ abstract class BaseDbTableResource extends BaseDbResource
                         // Get records
                         $filter = $refFieldName . ' IN (' . implode(',', $relatedIds) . ')';
                         $extras[ApiOptions::FILTER] = $filter;
+                        $fields = array_get($extras, 'fields');
+                        if ($removeLater = static::addToFields($fields, $refFieldName)) {
+                            $extras['fields'] = $fields;
+                        }
                         $relatedRecords = $this->retrieveVirtualRecords($refService, '_table/' . $refTable, $extras);
 
                         // Map the records back to data
@@ -2132,6 +2147,9 @@ abstract class BaseDbTableResource extends BaseDbResource
                                         $rightValue = array_get($junction, $junctionRefFieldName);
                                         foreach ($relatedRecords as $record) {
                                             if ($rightValue === array_get($record, $refFieldName)) {
+                                                if ($removeLater) {
+                                                    unset($record[$refFieldName]);
+                                                }
                                                 $data[$ndx][$relationName][] = $record;
                                             }
                                         }
@@ -2188,7 +2206,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             $insertMany = [];
             $updateMany = [];
             $id = array_get($parent, $pkFieldAlias);
-            if (empty($id)) {
+            if (is_null($id)) {
                 if (!$pkAutoSet) {
                     throw new BadRequestException("Related record has no primary key value for '$pkFieldAlias'.");
                 }
@@ -2288,7 +2306,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             $deleteMany = [];
             foreach ($many_records as $item) {
                 $id = array_get($item, $pkFieldAlias);
-                if (empty($id)) {
+                if (is_null($id)) {
                     if (!$pkAutoSet) {
                         throw new BadRequestException("Related record has no primary key value for '$pkFieldAlias'.");
                     }
@@ -2620,7 +2638,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             $refPkFieldAlias = $refPkField->getName(true);
             foreach ($many_records as $item) {
                 $id = array_get($item, $refPkFieldAlias);
-                if (empty($id)) {
+                if (is_null($id)) {
                     if (!$pkAutoSet) {
                         throw new BadRequestException("Related record has no primary key value for '$refPkFieldAlias'.");
                     }
@@ -2785,7 +2803,7 @@ abstract class BaseDbTableResource extends BaseDbResource
      *
      * @return array|bool|int|mixed|null|string
      */
-    protected static function checkForIds(&$record, $ids_info, $extras = null, $on_create = false, $remove = false)
+    protected function checkForIds(&$record, $ids_info, $extras = null, $on_create = false, $remove = false)
     {
         $id = null;
         if (!empty($ids_info)) {
@@ -2800,16 +2818,9 @@ abstract class BaseDbTableResource extends BaseDbResource
                 } else {
                     $value = $record;
                 }
-                if (!empty($value)) {
+                if (!is_null($value)) {
                     if (!is_array($value)) {
-                        switch ($info->type) {
-                            case 'int':
-                                $value = intval($value);
-                                break;
-                            case 'string':
-                                $value = strval($value);
-                                break;
-                        }
+                        $value = $this->schema->typecastToNative($value, $info);
                     }
                     $id = $value;
                 } else {
@@ -2831,16 +2842,9 @@ abstract class BaseDbTableResource extends BaseDbResource
                     } else {
                         $value = $record;
                     }
-                    if (!empty($value)) {
+                    if (!is_null($value)) {
                         if (!is_array($value)) {
-                            switch ($info->type) {
-                                case 'int':
-                                    $value = intval($value);
-                                    break;
-                                case 'string':
-                                    $value = strval($value);
-                                    break;
-                            }
+                            $value = $this->schema->typecastToNative($value, $info);
                         }
                         $id[$name] = $value;
                     } else {
@@ -2854,10 +2858,10 @@ abstract class BaseDbTableResource extends BaseDbResource
             }
         }
 
-        if (!empty($id)) {
+        if (!is_null($id)) {
             return $id;
         } elseif ($on_create) {
-            return [];
+            return null;
         }
 
         return false;
@@ -2879,78 +2883,7 @@ abstract class BaseDbTableResource extends BaseDbResource
      */
     protected function parseValueForSet($value, $field_info, $for_update = false)
     {
-        if (!is_null($value)) {
-            switch ($field_info->type) {
-                case DbSimpleTypes::TYPE_BOOLEAN:
-                    $value = filter_var($value, FILTER_VALIDATE_BOOLEAN);
-                    break;
-
-                case DbSimpleTypes::TYPE_INTEGER:
-                case DbSimpleTypes::TYPE_INT:
-                case DbSimpleTypes::TYPE_SMALL_INT:
-                case DbSimpleTypes::TYPE_MEDIUM_INTEGER:
-                case DbSimpleTypes::TYPE_ID:
-                case DbSimpleTypes::TYPE_SMALL_ID:
-                case DbSimpleTypes::TYPE_MEDIUM_ID:
-                case DbSimpleTypes::TYPE_REF:
-                case DbSimpleTypes::TYPE_USER_ID:
-                case DbSimpleTypes::TYPE_USER_ID_ON_CREATE:
-                case DbSimpleTypes::TYPE_USER_ID_ON_UPDATE:
-                    if (!is_int($value)) {
-                        if (('' === $value) && $field_info->allowNull) {
-                            $value = null;
-                        } elseif (!is_numeric($value)) {
-                            throw new BadRequestException("Field '{$field_info->getName(true)}' must be a valid integer.");
-                        } else {
-                            if (!is_float($value)) { // bigint catch as float
-                                $value = intval($value);
-                            }
-                        }
-                    }
-                    break;
-
-                case DbSimpleTypes::TYPE_BIG_INT:
-                case DbSimpleTypes::TYPE_BIG_ID:
-                    break;
-
-                case DbSimpleTypes::TYPE_DECIMAL:
-                case DbSimpleTypes::TYPE_DOUBLE:
-                case DbSimpleTypes::TYPE_FLOAT:
-                    break;
-
-                case DbSimpleTypes::TYPE_STRING:
-                case DbSimpleTypes::TYPE_TEXT:
-                    break;
-
-                case DbSimpleTypes::TYPE_DATE:
-                    $cfgFormat = Config::get('df.db_date_format');
-                    $outFormat = 'Y-m-d';
-                    $value = DataFormatter::formatDateTime($outFormat, $value, $cfgFormat);
-                    break;
-
-                case DbSimpleTypes::TYPE_TIME:
-                    $cfgFormat = Config::get('df.db_time_format');
-                    $outFormat = 'H:i:s.u';
-                    $value = DataFormatter::formatDateTime($outFormat, $value, $cfgFormat);
-                    break;
-
-                case DbSimpleTypes::TYPE_DATETIME:
-                    $cfgFormat = Config::get('df.db_datetime_format');
-                    $outFormat = 'Y-m-d H:i:s';
-                    $value = DataFormatter::formatDateTime($outFormat, $value, $cfgFormat);
-                    break;
-
-                case DbSimpleTypes::TYPE_TIMESTAMP:
-                case DbSimpleTypes::TYPE_TIMESTAMP_ON_CREATE:
-                case DbSimpleTypes::TYPE_TIMESTAMP_ON_UPDATE:
-                    $cfgFormat = Config::get('df.db_timestamp_format');
-                    $outFormat = 'Y-m-d H:i:s';
-                    $value = DataFormatter::formatDateTime($outFormat, $value, $cfgFormat);
-                    break;
-            }
-
-            $value = $this->schema->parseValueForSet($value, $field_info);
-        }
+        $value = $this->schema->typecastToNative($value, $field_info);
 
         if (!empty($function = $field_info->getDbFunction($for_update ? DbFunctionUses::UPDATE : DbFunctionUses::INSERT))) {
             $function = str_ireplace('{value}', (is_string($value) ? "'$value'" : $value), $function);
@@ -3539,12 +3472,12 @@ abstract class BaseDbTableResource extends BaseDbResource
      *
      * @return array
      */
-    protected static function recordsAsIds($records, $ids_info, $extras = null, $on_create = false, $remove = false)
+    protected function recordsAsIds($records, $ids_info, $extras = null, $on_create = false, $remove = false)
     {
         $out = [];
         if (!empty($records)) {
             foreach ($records as $record) {
-                $out[] = static::checkForIds($record, $ids_info, $extras, $on_create, $remove);
+                $out[] = $this->checkForIds($record, $ids_info, $extras, $on_create, $remove);
             }
         }
 
@@ -3590,7 +3523,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             if ($remove) {
                 unset($record[$field]);
             }
-            if (empty($id)) {
+            if (is_null($id)) {
                 throw new BadRequestException("Identifying field '$field' can not be empty for record.");
             }
 
@@ -3852,6 +3785,25 @@ abstract class BaseDbTableResource extends BaseDbResource
         }
 
         return $record;
+    }
+
+    public static function addToFields(&$fields, $new_field)
+    {
+        if (!empty($fields) && ('*' !== $fields)) {
+            if (is_string($fields) &&
+                (false === strpos(',' . $fields . ',', ',' . str_replace(' ', '', $new_field) . ','))
+            ) {
+                $fields .= ',' . $new_field;
+
+                return true;
+            } elseif (is_array($fields) && !in_array($new_field, $fields)) {
+                $fields[] = $new_field;
+
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
