@@ -26,10 +26,7 @@ use DreamFactory\Core\Exceptions\RestException;
 use DreamFactory\Core\Models\Service;
 use DreamFactory\Core\Utility\ResourcesWrapper;
 use DreamFactory\Core\Utility\Session;
-use DreamFactory\Library\Utility\ArrayUtils;
-use DreamFactory\Library\Utility\Enums\Verbs;
-use DreamFactory\Library\Utility\Inflector;
-use DreamFactory\Library\Utility\Scalar;
+use DreamFactory\Core\Enums\Verbs;
 use ServiceManager;
 
 abstract class BaseDbTableResource extends BaseDbResource
@@ -683,7 +680,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                     $params = array_get($options, ApiOptions::PARAMS, []);
                     $result = $this->deleteRecordsByFilter($tableName, $filter, $params, $options);
                 } else {
-                    if (!Scalar::boolval(array_get($options, ApiOptions::FORCE))) {
+                    if (!array_get_bool($options, ApiOptions::FORCE)) {
                         throw new BadRequestException('No filter or records given for delete request.');
                     }
 
@@ -724,8 +721,8 @@ abstract class BaseDbTableResource extends BaseDbResource
         $fields = array_get($extras, ApiOptions::FIELDS);
         $idFields = array_get($extras, ApiOptions::ID_FIELD);
         $idTypes = array_get($extras, ApiOptions::ID_TYPE);
-        $rollback = Scalar::boolval(array_get($extras, ApiOptions::ROLLBACK, false));
-        $continue = Scalar::boolval(array_get($extras, ApiOptions::CONTINUES, false));
+        $rollback = array_get_bool($extras, ApiOptions::ROLLBACK, false);
+        $continue = array_get_bool($extras, ApiOptions::CONTINUES, false);
         if ($rollback && $continue) {
             throw new BadRequestException('Rollback and continue operations can not be requested at the same time.');
         }
@@ -817,8 +814,8 @@ abstract class BaseDbTableResource extends BaseDbResource
         $idFields = array_get($extras, ApiOptions::ID_FIELD);
         $idTypes = array_get($extras, ApiOptions::ID_TYPE);
         $isSingle = (1 == count($records));
-        $rollback = Scalar::boolval(array_get($extras, ApiOptions::ROLLBACK, false));
-        $continue = Scalar::boolval(array_get($extras, ApiOptions::CONTINUES, false));
+        $rollback = array_get_bool($extras, ApiOptions::ROLLBACK, false);
+        $continue = array_get_bool($extras, ApiOptions::CONTINUES, false);
         if ($rollback && $continue) {
             throw new BadRequestException('Rollback and continue operations can not be requested at the same time.');
         }
@@ -953,8 +950,8 @@ abstract class BaseDbTableResource extends BaseDbResource
         $idFields = array_get($extras, ApiOptions::ID_FIELD);
         $idTypes = array_get($extras, ApiOptions::ID_TYPE);
         $isSingle = (1 == count($ids));
-        $rollback = Scalar::boolval(array_get($extras, ApiOptions::ROLLBACK, false));
-        $continue = Scalar::boolval(array_get($extras, ApiOptions::CONTINUES, false));
+        $rollback = array_get_bool($extras, ApiOptions::ROLLBACK);
+        $continue = array_get_bool($extras, ApiOptions::CONTINUES);
         if ($rollback && $continue) {
             throw new BadRequestException('Rollback and continue operations can not be requested at the same time.');
         }
@@ -1051,8 +1048,8 @@ abstract class BaseDbTableResource extends BaseDbResource
         $idFields = array_get($extras, ApiOptions::ID_FIELD);
         $idTypes = array_get($extras, ApiOptions::ID_TYPE);
         $isSingle = (1 == count($records));
-        $rollback = Scalar::boolval(array_get($extras, ApiOptions::ROLLBACK, false));
-        $continue = Scalar::boolval(array_get($extras, ApiOptions::CONTINUES, false));
+        $rollback = array_get_bool($extras, ApiOptions::ROLLBACK);
+        $continue = array_get_bool($extras, ApiOptions::CONTINUES);
         if ($rollback && $continue) {
             throw new BadRequestException('Rollback and continue operations can not be requested at the same time.');
         }
@@ -1186,8 +1183,8 @@ abstract class BaseDbTableResource extends BaseDbResource
         $idFields = array_get($extras, ApiOptions::ID_FIELD);
         $idTypes = array_get($extras, ApiOptions::ID_TYPE);
         $isSingle = (1 == count($ids));
-        $rollback = Scalar::boolval(array_get($extras, ApiOptions::ROLLBACK, false));
-        $continue = Scalar::boolval(array_get($extras, ApiOptions::CONTINUES, false));
+        $rollback = array_get_bool($extras, ApiOptions::ROLLBACK);
+        $continue = array_get_bool($extras, ApiOptions::CONTINUES);
         if ($rollback && $continue) {
             throw new BadRequestException('Rollback and continue operations can not be requested at the same time.');
         }
@@ -1375,8 +1372,8 @@ abstract class BaseDbTableResource extends BaseDbResource
         $idFields = array_get($extras, ApiOptions::ID_FIELD);
         $idTypes = array_get($extras, ApiOptions::ID_TYPE);
         $isSingle = (1 == count($ids));
-        $rollback = Scalar::boolval(array_get($extras, ApiOptions::ROLLBACK, false));
-        $continue = Scalar::boolval(array_get($extras, ApiOptions::CONTINUES, false));
+        $rollback = array_get_bool($extras, ApiOptions::ROLLBACK);
+        $continue = array_get_bool($extras, ApiOptions::CONTINUES);
         if ($rollback && $continue) {
             throw new BadRequestException('Rollback and continue operations can not be requested at the same time.');
         }
@@ -1555,7 +1552,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         $idFields = array_get($extras, ApiOptions::ID_FIELD);
         $idTypes = array_get($extras, ApiOptions::ID_TYPE);
         $isSingle = (1 == count($ids));
-        $continue = Scalar::boolval(array_get($extras, ApiOptions::CONTINUES));
+        $continue = array_get_bool($extras, ApiOptions::CONTINUES);
 
         $this->initTransaction($table, $idFields, $idTypes);
 
@@ -3103,9 +3100,9 @@ abstract class BaseDbTableResource extends BaseDbResource
             case DbComparisonOperators::CONTAINS:
                 return (false !== strpos($left, $right));
             case DbComparisonOperators::IN:
-                return ArrayUtils::isInList($right, $left);
+                return static::isInList($right, $left);
             case DbComparisonOperators::NOT_IN:
-                return !ArrayUtils::isInList($right, $left);
+                return !static::isInList($right, $left);
             case DbComparisonOperators::IS_NULL:
                 return is_null($left);
             case DbComparisonOperators::IS_NOT_NULL:
@@ -3117,6 +3114,19 @@ abstract class BaseDbTableResource extends BaseDbResource
             default:
                 throw new InternalServerErrorException('Invalid server-side filter configuration detected.');
         }
+    }
+
+    /**
+     * @param        $list
+     * @param        $find
+     * @param string $delimiter
+     * @param bool   $strict
+     *
+     * @return bool
+     */
+    public static function isInList($list, $find, $delimiter = ',', $strict = false)
+    {
+        return (false !== array_search($find, array_map('trim', explode($delimiter, strtolower($list))), $strict));
     }
 
     /**
@@ -3939,7 +3949,7 @@ abstract class BaseDbTableResource extends BaseDbResource
     public static function getApiDocInfo($service, array $resource = [])
     {
         $serviceName = strtolower($service);
-        $capitalized = Inflector::camelize($service);
+        $capitalized = camelize($service);
         $class = trim(strrchr(static::class, '\\'), '\\');
         $resourceName = strtolower(array_get($resource, 'name', $class));
         $path = '/' . $serviceName . '/' . $resourceName;

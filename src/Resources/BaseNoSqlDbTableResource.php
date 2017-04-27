@@ -2,7 +2,6 @@
 
 namespace DreamFactory\Core\Database\Resources;
 
-use DreamFactory\Library\Utility\Inflector;
 use DreamFactory\Core\Utility\ResourcesWrapper;
 use DreamFactory\Core\Enums\ApiOptions;
 
@@ -11,7 +10,7 @@ abstract class BaseNoSqlDbTableResource extends BaseDbTableResource
     public static function getApiDocInfo($service, array $resource = [])
     {
         $serviceName = strtolower($service);
-        $capitalized = Inflector::camelize($service);
+        $capitalized = camelize($service);
         $class = trim(strrchr(static::class, '\\'), '\\');
         $resourceName = strtolower(array_get($resource, 'name', $class));
         $path = '/' . $serviceName . '/' . $resourceName;

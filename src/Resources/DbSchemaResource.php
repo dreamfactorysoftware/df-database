@@ -16,8 +16,7 @@ use DreamFactory\Core\Exceptions\RestException;
 use DreamFactory\Core\Models\Service;
 use DreamFactory\Core\Utility\ResourcesWrapper;
 use DreamFactory\Core\Exceptions\BadRequestException;
-use DreamFactory\Library\Utility\Enums\Verbs;
-use DreamFactory\Library\Utility\Inflector;
+use DreamFactory\Core\Enums\Verbs;
 
 class DbSchemaResource extends BaseDbResource
 {
@@ -1541,9 +1540,9 @@ class DbSchemaResource extends BaseDbResource
     public static function getApiDocInfo($service, array $resource = [])
     {
         $serviceName = strtolower($service);
-        $capitalized = Inflector::camelize($service);
+        $capitalized = camelize($service);
         $class = trim(strrchr(static::class, '\\'), '\\');
-        $pluralClass = Inflector::pluralize($class);
+        $pluralClass = str_plural($class);
         $resourceName = strtolower(array_get($resource, 'name', $class));
         $path = '/' . $serviceName . '/' . $resourceName;
         $base = parent::getApiDocInfo($service, $resource);

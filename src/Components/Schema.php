@@ -20,8 +20,6 @@ use DreamFactory\Core\Exceptions\InternalServerErrorException;
 use DreamFactory\Core\Exceptions\NotFoundException;
 use DreamFactory\Core\Exceptions\NotImplementedException;
 use DreamFactory\Core\Models\Service;
-use DreamFactory\Library\Utility\Inflector;
-use DreamFactory\Library\Utility\Scalar;
 use Illuminate\Database\Connection;
 use Illuminate\Database\ConnectionInterface;
 
@@ -1929,7 +1927,7 @@ MYSQL;
             throw new \Exception("Invalid schema detected - no name element.");
         }
         if (!empty($label = array_get($field, 'label'))) {
-            if ($label === Inflector::camelize($name, '_', true)) {
+            if ($label === camelize($name, '_', true)) {
                 unset($field['label']); // no need to create an entry just for the same label
             }
         }
@@ -4143,7 +4141,7 @@ MYSQL;
                 return intval($value);
             case 'bool':
             case 'boolean':
-                return Scalar::boolval($value);
+                return to_bool($value);
             case 'double':
             case 'float':
                 return floatval($value);
