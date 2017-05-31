@@ -416,7 +416,7 @@ abstract class BaseDbTableResource extends BaseDbResource
     }
 
     /**
-     * @return array
+     * @return array|int
      * @throws \DreamFactory\Core\Exceptions\InternalServerErrorException
      * @throws \DreamFactory\Core\Exceptions\NotFoundException
      * @throws \DreamFactory\Core\Exceptions\RestException
@@ -457,15 +457,17 @@ abstract class BaseDbTableResource extends BaseDbResource
             $result = $this->retrieveRecordsByFilter($tableName, $filter, $params, $options);
         }
 
-        $meta = array_get($result, 'meta');
-        unset($result['meta']);
+        if (is_array($result)) {
+            $meta = array_get($result, 'meta');
+            unset($result['meta']);
 
-        $asList = $this->request->getParameterAsBool(ApiOptions::AS_LIST);
-        $idField = $this->request->getParameter(ApiOptions::ID_FIELD, static::getResourceIdentifier());
-        $result = ResourcesWrapper::cleanResources($result, $asList, $idField, ApiOptions::FIELDS_ALL, !empty($meta));
+            $asList = $this->request->getParameterAsBool(ApiOptions::AS_LIST);
+            $idField = $this->request->getParameter(ApiOptions::ID_FIELD, static::getResourceIdentifier());
+            $result = ResourcesWrapper::cleanResources($result, $asList, $idField, ApiOptions::FIELDS_ALL, !empty($meta));
 
-        if (!empty($meta)) {
-            $result['meta'] = $meta;
+            if (!empty($meta)) {
+                $result['meta'] = $meta;
+            }
         }
 
         return $result;
