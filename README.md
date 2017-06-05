@@ -1,4 +1,4 @@
-## DreamFactory Database v0.2
+## DreamFactory Database v0.4
 
 > **Note:** This repository contains the database code of the DreamFactory platform. If you want the full DreamFactory platform, visit the main [DreamFactory repository](https://github.com/dreamfactorysoftware/dreamfactory).
 
@@ -14,7 +14,7 @@ For more information, see the [full platform repository](https://github.com/drea
 Edit your project’s composer.json to require the following package.
 
 	“require”:{
-		"dreamfactory/df-database": "~0.2.0"
+		"dreamfactory/df-database": "~0.4.0"
 	}
 
 ## Feedback and Contributions
