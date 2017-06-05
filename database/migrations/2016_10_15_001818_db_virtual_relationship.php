@@ -16,10 +16,11 @@ class DbVirtualRelationship extends Migration
         // Even though we take care of this scenario in the code,
         // SQL Server does not allow potential cascading loops,
         // so set the default no action and clear out created/modified by another user when deleting a user.
-        $userOnDelete = (('sqlsrv' === $driver) ? 'no action' : 'set null');
+        $onDelete = (('sqlsrv' === $driver) ? 'no action' : 'set null');
+        $onDeleteCascade = (('sqlsrv' === $driver) ? 'no action' : 'cascade');
         Schema::create(
             'db_virtual_relationship',
-            function (Blueprint $t) use ($userOnDelete) {
+            function (Blueprint $t) use ($onDelete, $onDeleteCascade) {
                 $t->increments('id');
                 $t->string('type');
                 $t->integer('service_id')->unsigned();
@@ -27,22 +28,22 @@ class DbVirtualRelationship extends Migration
                 $t->string('table');
                 $t->string('field');
                 $t->integer('ref_service_id')->unsigned();
-                $t->foreign('ref_service_id')->references('id')->on('service')->onDelete('cascade');
+                $t->foreign('ref_service_id')->references('id')->on('service')->onDelete($onDeleteCascade);
                 $t->string('ref_table');
                 $t->string('ref_field');
                 $t->string('ref_on_update')->nullable();
                 $t->string('ref_on_delete')->nullable();
                 $t->integer('junction_service_id')->unsigned()->nullable();
-                $t->foreign('junction_service_id')->references('id')->on('service')->onDelete('cascade');
+                $t->foreign('junction_service_id')->references('id')->on('service')->onDelete($onDeleteCascade);
                 $t->string('junction_table')->nullable();
                 $t->string('junction_field')->nullable();
                 $t->string('junction_ref_field')->nullable();
                 $t->timestamp('created_date')->nullable();
                 $t->timestamp('last_modified_date')->useCurrent();
                 $t->integer('created_by_id')->unsigned()->nullable();
-                $t->foreign('created_by_id')->references('id')->on('user')->onDelete($userOnDelete);
+                $t->foreign('created_by_id')->references('id')->on('user')->onDelete($onDelete);
                 $t->integer('last_modified_by_id')->unsigned()->nullable();
-                $t->foreign('last_modified_by_id')->references('id')->on('user')->onDelete($userOnDelete);
+                $t->foreign('last_modified_by_id')->references('id')->on('user')->onDelete($onDelete);
             }
         );
 

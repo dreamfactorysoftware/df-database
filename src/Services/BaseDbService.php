@@ -15,7 +15,6 @@ use DreamFactory\Core\Exceptions\NotImplementedException;
 use DreamFactory\Core\Database\Resources\BaseDbResource;
 use DreamFactory\Core\Services\BaseRestService;
 use DreamFactory\Core\Utility\Session;
-use DreamFactory\Library\Utility\Scalar;
 use Illuminate\Database\ConnectionInterface;
 
 abstract class BaseDbService extends BaseRestService  implements CachedInterface, CacheInterface, DbExtrasInterface
@@ -64,8 +63,8 @@ abstract class BaseDbService extends BaseRestService  implements CachedInterface
         parent::__construct($settings);
 
         $config = (array)array_get($settings, 'config');
-        $this->allowUpsert = Scalar::boolval(array_get($config, 'allow_upsert'));
-        $this->cacheEnabled = Scalar::boolval(array_get($config, 'cache_enabled'));
+        $this->allowUpsert = array_get_bool($config, 'allow_upsert');
+        $this->cacheEnabled = array_get_bool($config, 'cache_enabled');
         $this->cacheTTL = intval(array_get($config, 'cache_ttl', \Config::get('df.default_cache_ttl')));
         $this->cachePrefix = 'service_' . $this->id . ':';
     }

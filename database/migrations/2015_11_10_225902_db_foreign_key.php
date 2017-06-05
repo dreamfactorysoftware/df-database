@@ -16,12 +16,12 @@ class DbForeignKey extends Migration
         // Even though we take care of this scenario in the code,
         // SQL Server does not allow potential cascading loops,
         // so set the default no action and clear out created/modified by another user when deleting a user.
-        $userOnDelete = (('sqlsrv' === $driver) ? 'no action' : 'set null');
+        $onDelete = (('sqlsrv' === $driver) ? 'no action' : 'set null');
 
         // Database Relationship Extras
         Schema::create(
             'db_relationship_extras',
-            function (Blueprint $t) use ($userOnDelete){
+            function (Blueprint $t) use ($onDelete){
                 $t->increments('id');
                 $t->integer('service_id')->unsigned();
                 $t->foreign('service_id')->references('id')->on('service')->onDelete('cascade');
@@ -36,9 +36,9 @@ class DbForeignKey extends Migration
                 $t->timestamp('created_date')->nullable();
                 $t->timestamp('last_modified_date')->useCurrent();
                 $t->integer('created_by_id')->unsigned()->nullable();
-                $t->foreign('created_by_id')->references('id')->on('user')->onDelete($userOnDelete);
+                $t->foreign('created_by_id')->references('id')->on('user')->onDelete($onDelete);
                 $t->integer('last_modified_by_id')->unsigned()->nullable();
-                $t->foreign('last_modified_by_id')->references('id')->on('user')->onDelete($userOnDelete);
+                $t->foreign('last_modified_by_id')->references('id')->on('user')->onDelete($onDelete);
             }
         );
     }

@@ -1,7 +1,7 @@
 <?php
 namespace DreamFactory\Core\Database\Enums;
 
-use DreamFactory\Library\Utility\Enums\FactoryEnum;
+use DreamFactory\Core\Enums\FactoryEnum;
 
 /**
  * DbFunctionUses
