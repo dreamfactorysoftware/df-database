@@ -62,10 +62,9 @@ abstract class BaseDbService extends BaseRestService  implements CachedInterface
     {
         parent::__construct($settings);
 
-        $config = (array)array_get($settings, 'config');
-        $this->allowUpsert = array_get_bool($config, 'allow_upsert');
-        $this->cacheEnabled = array_get_bool($config, 'cache_enabled');
-        $this->cacheTTL = intval(array_get($config, 'cache_ttl', \Config::get('df.default_cache_ttl')));
+        $this->allowUpsert = array_get_bool($this->config, 'allow_upsert');
+        $this->cacheEnabled = array_get_bool($this->config, 'cache_enabled');
+        $this->cacheTTL = intval(array_get($this->config, 'cache_ttl', \Config::get('df.default_cache_ttl')));
         $this->cachePrefix = 'service_' . $this->id . ':';
     }
 
@@ -129,13 +128,18 @@ abstract class BaseDbService extends BaseRestService  implements CachedInterface
         return ($only_handlers) ? static::$resources : array_values(static::$resources);
     }
 
+    protected function initializeConnection()
+    {
+        throw new InternalServerErrorException('Database connection has not been initialized.');
+    }
+
     /**
      * @throws \Exception
      */
     public function getConnection()
     {
         if (!isset($this->dbConn)) {
-            throw new InternalServerErrorException('Database connection has not been initialized.');
+            $this->initializeConnection();
         }
 
         return $this->dbConn;
@@ -148,7 +152,10 @@ abstract class BaseDbService extends BaseRestService  implements CachedInterface
     public function getSchema()
     {
         if (!isset($this->schema)) {
-            throw new InternalServerErrorException('Database schema extension has not been initialized.');
+            $this->initializeConnection();
+            if (!isset($this->schema)) {
+                throw new InternalServerErrorException('Database schema extension has not been initialized.');
+            }
         }
 
         return $this->schema;
@@ -158,7 +165,7 @@ abstract class BaseDbService extends BaseRestService  implements CachedInterface
      */
     public function refreshTableCache()
     {
-        $this->schema->refresh();
+        $this->getSchema()->refresh();
     }
 
     /**

@@ -1,4 +1,5 @@
 <?php
+
 namespace DreamFactory\Core\Database\Components;
 
 use DreamFactory\Core\Contracts\CacheInterface;
@@ -37,22 +38,17 @@ class Schema implements SchemaInterface
     /**
      * @const string Quoting characters
      */
-    const LEFT_QUOTE_CHARACTER = '"';
+    const LEFT_QUOTE_CHARACTER = '';
 
     /**
      * @const string Quoting characters
      */
-    const RIGHT_QUOTE_CHARACTER = '"';
+    const RIGHT_QUOTE_CHARACTER = '';
 
     /**
      * Default fetch mode for procedures and functions
      */
     const ROUTINE_FETCH_MODE = \PDO::FETCH_NAMED;
-
-    /**
-     * Underlying database provides field-level schema, i.e. SQL (true) vs NoSQL (false)
-     */
-    const PROVIDES_FIELD_SCHEMA = false;
 
     /**
      * @var CacheInterface
@@ -799,7 +795,7 @@ class Schema implements SchemaInterface
                 }
                 $table = $this->getTable($name[0]);
                 if ($resource = $table->getColumn($name[1])) {
-                    if (static::PROVIDES_FIELD_SCHEMA && !$resource->isVirtual) {
+                    if ($this->supportsResourceType(DbResourceTypes::TYPE_TABLE_FIELD) && !$resource->isVirtual) {
                         $this->dropColumns($table->quotedName, $resource->quotedName);
                     }
                     $this->fieldsDropped($name[0], $name[1]);
@@ -1096,7 +1092,8 @@ class Schema implements SchemaInterface
 
                     if (null !== $c = $table->getColumn($columnName)) {
                         $c->fill($extra);
-                    } elseif (!empty($type) && (array_get($extra, 'is_virtual') || !static::PROVIDES_FIELD_SCHEMA)) {
+                    } elseif (!empty($type) && (array_get($extra, 'is_virtual') ||
+                            !$this->supportsResourceType(DbResourceTypes::TYPE_TABLE_FIELD))) {
                         $extra['name'] = $columnName;
                         $c = new ColumnSchema($extra);
                         $c->quotedName = $this->quoteColumnName($c->name);
@@ -1258,7 +1255,7 @@ class Schema implements SchemaInterface
                 foreach ($extrasEntries as $extras) {
                     if (!empty($extraName = strtolower(strval($extras['table'])))) {
                         if (array_key_exists($extraName, $tables)) {
-                            $tables[$extraName]->fill($extras);
+                            $tables[$extraName]->fill(array_except($extras, 'id'));
                         }
                     }
                 }
@@ -1920,6 +1917,681 @@ MYSQL;
     {
     }
 
+    /**
+     * @param      $tables
+     * @param bool $allow_merge
+     * @param bool $allow_delete
+     * @param bool $rollback
+     *
+     * @return array
+     * @throws \Exception
+     */
+    public function updateSchema($tables, $allow_merge = false, $allow_delete = false, $rollback = false)
+    {
+        if (!is_array($tables) || empty($tables)) {
+            throw new \Exception('There are no table sets in the request.');
+        }
+
+        if (!isset($tables[0])) {
+            // single record possibly passed in without wrapper array
+            $tables = [$tables];
+        }
+
+        $created = [];
+        $references = [];
+        $indexes = [];
+        $out = [];
+        $tableExtras = [];
+        $fieldExtras = [];
+        $fieldDrops = [];
+        $relatedExtras = [];
+        $relatedDrops = [];
+        $virtualRelations = [];
+        $virtualRelationDrops = [];
+        $count = 0;
+        $singleTable = (1 == count($tables));
+
+        foreach ($tables as $table) {
+            try {
+                if (empty($tableName = array_get($table, 'name'))) {
+                    throw new \Exception('Table name missing from schema.');
+                }
+
+                //	Does it already exist
+                if (!$tableSchema = $this->getResource(DbResourceTypes::TYPE_TABLE, $tableName)) {
+                    // until views get their own resource
+                    if ($this->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
+                        $tableSchema = $this->getResource(DbResourceTypes::TYPE_VIEW, $tableName);
+                    }
+                }
+                if ($tableSchema) {
+                    if (!$allow_merge) {
+                        throw new \Exception("A table with name '$tableName' already exist in the database.");
+                    }
+
+                    \Log::debug('Schema update: ' . $tableName);
+
+                    $results = [];
+                    if (!empty($fields = array_get($table, 'field'))) {
+                        $results = $this->buildTableFields($tableSchema, $fields, true, $allow_delete);
+                    }
+                    if (!empty($related = array_get($table, 'related'))) {
+                        $related = $this->buildTableRelated($tableSchema, $related, true, $allow_delete);
+                        $results = array_merge($results, $related);
+                    }
+
+                    $this->updateTable($tableSchema, array_merge($table, $results));
+                } else {
+                    \Log::debug('Creating table: ' . $tableName);
+
+                    $results = [];
+                    if (!empty($fields = array_get($table, 'field'))) {
+                        $results = $this->createTableFields($tableName, $fields);
+                    }
+                    if (!empty($related = array_get($table, 'related'))) {
+                        $temp = $this->createTableRelated($tableName, $related);
+                        $results = array_merge($results, $temp);
+                    }
+
+                    $this->createTable($table, $results);
+
+                    if (!$singleTable && $rollback) {
+                        $created[] = $tableName;
+                    }
+                }
+
+                if (!empty($results['commands'])) {
+                    foreach ($results['commands'] as $extraCommand) {
+                        try {
+                            $this->connection->statement($extraCommand);
+                        } catch (\Exception $ex) {
+                            // oh well, we tried.
+                        }
+                    }
+                }
+
+                // add table extras
+                $extras = array_only($table, ['label', 'plural', 'alias', 'description', 'name_field']);
+                if (!empty($extras)) {
+                    $extras['table'] = $tableName;
+                    $tableExtras[] = $extras;
+                }
+
+                $fieldExtras = array_merge($fieldExtras, (array)array_get($results, 'extras'));
+                $fieldDrops = array_merge($fieldDrops, (array)array_get($results, 'drop_extras'));
+                $references = array_merge($references, (array)array_get($results, 'references'));
+                $indexes = array_merge($indexes, (array)array_get($results, 'indexes'));
+                $relatedExtras = array_merge($relatedExtras, (array)array_get($results, 'related_extras'));
+                $relatedDrops = array_merge($relatedDrops, (array)array_get($results, 'drop_related_extras'));
+                $virtualRelations = array_merge($virtualRelations, (array)array_get($results, 'virtual_relations'));
+                $virtualRelationDrops = array_merge($virtualRelationDrops,
+                    (array)array_get($results, 'drop_virtual_relations'));
+
+                $out[$count] = ['name' => $tableName];
+            } catch (\Exception $ex) {
+                if ($rollback || $singleTable) {
+                    //  Delete any created tables
+                    throw $ex;
+                }
+
+                $out[$count] = [
+                    'error' => [
+                        'message' => $ex->getMessage(),
+                        'code'    => $ex->getCode()
+                    ]
+                ];
+            }
+
+            $count++;
+        }
+
+        if (!empty($references)) {
+            $this->createFieldReferences($references);
+        }
+        if (!empty($indexes)) {
+            $this->createFieldIndexes($indexes);
+        }
+        if (!empty($tableExtras)) {
+            $this->setSchemaTableExtras($tableExtras);
+        }
+        if (!empty($fieldExtras)) {
+            $this->setSchemaFieldExtras($fieldExtras);
+        }
+        if (!empty($fieldDrops)) {
+            foreach ($fieldDrops as $table => $dropped) {
+                $this->removeSchemaExtrasForFields($table, $dropped);
+            }
+        }
+        if (!empty($relatedExtras)) {
+            $this->setSchemaRelatedExtras($relatedExtras);
+        }
+        if (!empty($relatedDrops)) {
+            foreach ($relatedDrops as $table => $dropped) {
+                $this->removeSchemaExtrasForRelated($table, $dropped);
+            }
+        }
+        if (!empty($virtualRelations)) {
+            $this->setSchemaVirtualRelationships($virtualRelations);
+        }
+        if (!empty($virtualRelationDrops)) {
+            foreach ($virtualRelationDrops as $table => $dropped) {
+                $this->removeSchemaVirtualRelationships($table, $dropped);
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param string $table_name
+     * @param array  $fields
+     *
+     * @throws \Exception
+     * @return array
+     */
+    protected function createTableFields($table_name, $fields)
+    {
+        if (!is_array($fields) || empty($fields)) {
+            throw new \Exception('There are no fields in the requested schema.');
+        }
+
+        if (!isset($fields[0])) {
+            // single record possibly passed in without wrapper array
+            $fields = [$fields];
+        }
+
+        $internalTableName = $table_name;
+        if ((false === strpos($table_name, '.')) && !empty($namingSchema = $this->getNamingSchema())) {
+            $internalTableName = $namingSchema . '.' . $table_name;
+        }
+        $columns = [];
+        $references = [];
+        $indexes = [];
+        $extras = [];
+        $commands = [];
+        foreach ($fields as $field) {
+            $this->cleanClientField($field);
+            $name = array_get($field, 'name');
+
+            // clean out extras
+            $extraNew = array_only($field, $this->fieldExtras);
+            $field = array_except($field, $this->fieldExtras);
+
+            $type = strtolower((string)array_get($field, 'type'));
+            if (!$this->supportsResourceType(DbResourceTypes::TYPE_TABLE_FIELD) ||
+                array_get($extraNew, 'is_virtual', false)
+            ) {
+                // no need to build what the db doesn't support, use extras and bail
+                $extraNew['extra_type'] = $type;
+            } else {
+                if ($this->isUndiscoverableType($type)) {
+                    $extraNew['extra_type'] = $type;
+                }
+
+                $result = $this->buildTableField($internalTableName, $field);
+                $commands = array_merge($commands, (array)array_get($result, 'commands'));
+                $references = array_merge($references, (array)array_get($result, 'references'));
+                $indexes = array_merge($indexes, (array)array_get($result, 'indexes'));
+
+                $columns[$name] = $field;
+            }
+
+            if (!empty($extraNew)) {
+                $extraNew['table'] = $table_name;
+                $extraNew['field'] = $name;
+                $extras[] = $extraNew;
+            }
+        }
+
+        return [
+            'columns'    => $columns,
+            'references' => $references,
+            'indexes'    => $indexes,
+            'extras'     => $extras,
+            'commands'   => $commands,
+        ];
+    }
+
+    /**
+     * @param TableSchema $table_schema
+     * @param array       $fields
+     * @param bool        $allow_update
+     * @param bool        $allow_delete
+     *
+     * @throws \Exception
+     * @return array
+     */
+    protected function buildTableFields(
+        $table_schema,
+        $fields,
+        $allow_update = false,
+        $allow_delete = false
+    ) {
+        if (!is_array($fields) || empty($fields)) {
+            throw new \Exception('There are no fields in the requested schema.');
+        }
+
+        if (!isset($fields[0])) {
+            // single record possibly passed in without wrapper array
+            $fields = [$fields];
+        }
+
+        $columns = [];
+        $alterColumns = [];
+        $dropColumns = [];
+        $references = [];
+        $indexes = [];
+        $extras = [];
+        $dropExtras = [];
+        $commands = [];
+        $internalTableName = $table_schema->internalName;
+        foreach ($fields as $field) {
+            $this->cleanClientField($field);
+            $name = array_get($field, 'name');
+
+            /** @type ColumnSchema $oldField */
+            if ($oldField = $table_schema->getColumn($name)) {
+                // UPDATE
+                if (!$allow_update) {
+                    throw new \Exception("Field '$name' already exists in table '{$table_schema->name}'.");
+                }
+
+                $oldArray = $oldField->toArray();
+                $diffFields = array_diff($this->fieldExtras, ['picklist', 'validation', 'db_function']);
+                $extraNew = array_diff_assoc(array_only($field, $diffFields), array_only($oldArray, $diffFields));
+
+                if (array_key_exists('picklist', $field)) {
+                    $picklist = (array)array_get($field, 'picklist');
+                    $oldPicklist = (array)$oldField->picklist;
+                    if ((count($picklist) !== count($oldPicklist)) ||
+                        !empty(array_diff($picklist, $oldPicklist)) ||
+                        !empty(array_diff($oldPicklist, $picklist))
+                    ) {
+                        $extraNew['picklist'] = $picklist;
+                    }
+                }
+
+                if (array_key_exists('validation', $field)) {
+                    $validation = (array)array_get($field, 'validation');
+                    $oldValidation = (array)$oldField->validation;
+                    if (json_encode($validation) !== json_encode($oldValidation)) {
+                        $extraNew['validation'] = $validation;
+                    }
+                }
+
+                if (array_key_exists('db_function', $field)) {
+                    $dbFunction = (array)array_get($field, 'db_function');
+                    $oldFunction = (array)$oldField->dbFunction;
+                    if (json_encode($dbFunction) !== json_encode($oldFunction)) {
+                        $extraNew['db_function'] = $dbFunction;
+                    }
+                }
+
+                // clean out extras
+                $noDiff = array_merge($this->fieldExtras, ['default', 'native']);
+                $settingsNew = array_diff_assoc(array_except($field, $noDiff), array_except($oldArray, $noDiff));
+
+                // may be an array due to expressions
+                if (array_key_exists('default', $settingsNew)) {
+                    $default = $settingsNew['default'];
+                    if ($default !== $oldField->defaultValue) {
+                        $settingsNew['default'] = $default;
+                    }
+                }
+                if (array_key_exists('native', $settingsNew)) {
+                    $native = $settingsNew['native'];
+                    if ($native !== $oldField->native) {
+                        $settingsNew['native'] = $native;
+                    }
+                }
+
+                // if empty, nothing to do here, check extras
+                if (empty($settingsNew)) {
+                    if (!empty($extraNew)) {
+                        $extraNew['table'] = $table_schema->name;
+                        $extraNew['field'] = $name;
+                        $extras[] = $extraNew;
+                    }
+
+                    continue;
+                }
+
+                $type = strtolower((string)array_get($field, 'type'));
+                if (!$this->supportsResourceType(DbResourceTypes::TYPE_TABLE_FIELD) ||
+                    array_get($extraNew, 'is_virtual', false) || $oldField->isVirtual
+                ) {
+                    if (!$oldField->isVirtual) {
+                        throw new \Exception("Field '$name' already exists as non-virtual in table '{$table_schema->name}'.");
+                    }
+                    // no need to build what the db doesn't support, use extras and bail
+                    $extraNew['extra_type'] = $type;
+                } else {
+                    if ($this->isUndiscoverableType($type)) {
+                        $extraNew['extra_type'] = $type;
+                    }
+
+                    $result = $this->buildTableField($internalTableName, $field, true, $oldField);
+                    $commands = array_merge($commands, (array)array_get($result, 'commands'));
+                    $references = array_merge($references, (array)array_get($result, 'references'));
+                    $indexes = array_merge($indexes, (array)array_get($result, 'indexes'));
+
+                    $alterColumns[$name] = $field;
+                }
+            } else {
+                // CREATE
+
+                // clean out extras
+                $extraNew = array_only($field, $this->fieldExtras);
+                $field = array_except($field, $this->fieldExtras);
+
+                $type = strtolower((string)array_get($field, 'type'));
+                if (!$this->supportsResourceType(DbResourceTypes::TYPE_TABLE_FIELD) ||
+                    array_get($extraNew, 'is_virtual', false)
+                ) {
+                    // no need to build what the db doesn't support, use extras and bail
+                    $extraNew['extra_type'] = $type;
+                } else {
+                    if ($this->isUndiscoverableType($type)) {
+                        $extraNew['extra_type'] = $type;
+                    }
+
+                    $result = $this->buildTableField($internalTableName, $field, true);
+                    $commands = array_merge($commands, (array)array_get($result, 'commands'));
+                    $references = array_merge($references, (array)array_get($result, 'references'));
+                    $indexes = array_merge($indexes, (array)array_get($result, 'indexes'));
+
+                    $columns[$name] = $field;
+                }
+            }
+
+            if (!empty($extraNew)) {
+                $extraNew['table'] = $table_schema->name;
+                $extraNew['field'] = $name;
+                $extras[] = $extraNew;
+            }
+        }
+
+        if ($allow_delete) {
+            // check for columns to drop
+            /** @type  ColumnSchema $oldField */
+            foreach ($table_schema->getColumns() as $oldField) {
+                $found = false;
+                foreach ($fields as $field) {
+                    $field = array_change_key_case($field, CASE_LOWER);
+                    if (array_get($field, 'name') === $oldField->name) {
+                        $found = true;
+                    }
+                }
+                if (!$found) {
+                    if ($this->supportsResourceType(DbResourceTypes::TYPE_TABLE_FIELD) && !$oldField->isVirtual) {
+                        $dropColumns[] = $oldField->name;
+                    }
+                    $dropExtras[$table_schema->name][] = $oldField->name;
+                }
+            }
+        }
+
+        return [
+            'columns'       => $columns,
+            'alter_columns' => $alterColumns,
+            'drop_columns'  => $dropColumns,
+            'references'    => $references,
+            'indexes'       => $indexes,
+            'extras'        => $extras,
+            'drop_extras'   => $dropExtras,
+            'commands'      => $commands,
+        ];
+    }
+
+    /**
+     * @param string       $tableName
+     * @param array        $field
+     * @param bool         $oldTable
+     * @param ColumnSchema $oldField
+     *
+     * @return array
+     * @throws \Exception
+     */
+    protected function buildTableField($tableName, $field, $oldTable = false, $oldField = null)
+    {
+        $name = array_get($field, 'name');
+        $type = strtolower((string)array_get($field, 'type'));
+        $commands = [];
+        $indexes = [];
+        $references = [];
+        switch ($type) {
+            case DbSimpleTypes::TYPE_ID:
+                $pkExtras = $this->getPrimaryKeyCommands($tableName, $name);
+                $commands = array_merge($commands, $pkExtras);
+                break;
+        }
+
+        if (((DbSimpleTypes::TYPE_REF == $type) || array_get($field, 'is_foreign_key'))) {
+            // special case for references because the table referenced may not be created yet
+            if (empty($refTable = array_get($field, 'ref_table'))) {
+                throw new \Exception("Invalid schema detected - no table element for reference type of $name.");
+            }
+
+            if ((false === strpos($refTable, '.')) && !empty($namingSchema = $this->getNamingSchema())) {
+                $refTable = $namingSchema . '.' . $refTable;
+            }
+            $refColumns = array_get($field, 'ref_field', array_get($field, 'ref_fields'));
+            $refOnDelete = array_get($field, 'ref_on_delete');
+            $refOnUpdate = array_get($field, 'ref_on_update');
+
+            if ($this->allowsSeparateForeignConstraint()) {
+                if (!isset($oldField) || !$oldField->isForeignKey) {
+                    // will get to it later, $refTable may not be there
+                    $keyName = $this->makeConstraintName('fk', $tableName, $name);
+                    $references[] = [
+                        'name'      => $keyName,
+                        'table'     => $tableName,
+                        'column'    => $name,
+                        'ref_table' => $refTable,
+                        'ref_field' => $refColumns,
+                        'delete'    => $refOnDelete,
+                        'update'    => $refOnUpdate,
+                    ];
+                }
+            }
+        }
+
+        // regardless of type
+        if (array_get($field, 'is_unique')) {
+            if ($this->requiresCreateIndex(true, !$oldTable)) {
+                // will get to it later, create after table built
+                $keyName = $this->makeConstraintName('undx', $tableName, $name);
+                $indexes[] = [
+                    'name'   => $keyName,
+                    'table'  => $tableName,
+                    'column' => $name,
+                    'unique' => true,
+                    'drop'   => isset($oldField),
+                ];
+            }
+        } elseif (array_get($field, 'is_index')) {
+            if ($this->requiresCreateIndex($oldTable, !$oldTable)) {
+                // will get to it later, create after table built
+                $keyName = $this->makeConstraintName('ndx', $tableName, $name);
+                $indexes[] = [
+                    'name'   => $keyName,
+                    'table'  => $tableName,
+                    'column' => $name,
+                    'drop'   => isset($oldField),
+                ];
+            }
+        }
+
+        return ['field' => $field, 'commands' => $commands, 'references' => $references, 'indexes' => $indexes];
+    }
+
+    /**
+     * @param string $table_name
+     * @param array  $related
+     *
+     * @throws \Exception
+     * @return array
+     */
+    public function createTableRelated($table_name, $related)
+    {
+        if (!is_array($related) || empty($related)) {
+            return [];
+        }
+
+        if (!isset($related[0])) {
+            // single record possibly passed in without wrapper array
+            $related = [$related];
+        }
+
+        $extra = [];
+        $virtual = [];
+        foreach ($related as $relation) {
+            $this->cleanClientRelation($relation);
+            // clean out extras
+            $extraNew = array_only($relation, $this->relatedExtras);
+            if (!empty($extraNew['alias']) || !empty($extraNew['label']) || !empty($extraNew['description']) ||
+                !empty($extraNew['always_fetch']) || !empty($extraNew['flatten']) ||
+                !empty($extraNew['flatten_drop_prefix'])
+            ) {
+                $extraNew['table'] = $table_name;
+                $extraNew['relationship'] = array_get($relation, 'name');
+                $extra[] = $extraNew;
+            }
+
+            // only virtual
+            if (boolval(array_get($relation, 'is_virtual'))) {
+                $relation = array_except($relation, $this->relatedExtras);
+                $relation['table'] = $table_name;
+                $virtual[] = $relation;
+            } else {
+                // todo create foreign keys here eventually as well?
+            }
+        }
+
+        return [
+            'related_extras'    => $extra,
+            'virtual_relations' => $virtual,
+        ];
+    }
+
+    /**
+     * @param TableSchema $table_schema
+     * @param array       $related
+     * @param bool        $allow_update
+     * @param bool        $allow_delete
+     *
+     * @throws \Exception
+     * @return array
+     */
+    public function buildTableRelated(
+        $table_schema,
+        $related,
+        $allow_update = false,
+        $allow_delete = false
+    ) {
+        if (!is_array($related) || empty($related)) {
+            throw new \Exception('There are no related elements in the requested schema.');
+        }
+
+        if (!isset($related[0])) {
+            // single record possibly passed in without wrapper array
+            $related = [$related];
+        }
+
+        $extras = [];
+        $dropExtras = [];
+        $virtuals = [];
+        $dropVirtuals = [];
+        foreach ($related as $relation) {
+            $this->cleanClientRelation($relation);
+            $name = array_get($relation, 'name');
+
+            /** @type RelationSchema $oldRelation */
+            if ($oldRelation = $table_schema->getRelation($name)) {
+                // UPDATE
+                if (!$allow_update) {
+                    throw new \Exception("Relation '$name' already exists in table '{$table_schema->name}'.");
+                }
+
+                $oldArray = $oldRelation->toArray();
+                $extraNew = array_only($relation, $this->relatedExtras);
+                $extraOld = array_only($oldArray, $this->relatedExtras);
+                if (!empty($extraNew = array_diff_assoc($extraNew, $extraOld))) {
+                    // if all empty, delete the extras entry, otherwise update
+                    $combined = array_merge($extraOld, $extraNew);
+                    if (!empty($combined['alias']) || !empty($combined['label']) || !empty($combined['description']) ||
+                        !empty($combined['always_fetch']) || !empty($combined['flatten']) ||
+                        !empty($combined['flatten_drop_prefix'])
+                    ) {
+                        $extraNew['table'] = $table_schema->name;
+                        $extraNew['relationship'] = array_get($relation, 'name');
+                        $extras[] = $extraNew;
+                    } else {
+                        $dropExtras[$table_schema->name][] = $oldRelation->name;
+                    }
+                }
+
+                // only virtual
+                if (boolval(array_get($relation, 'is_virtual'))) {
+                    // clean out extras
+                    $noDiff = array_merge($this->relatedExtras, ['native']);
+                    $relation = array_except($relation, $noDiff);
+                    if (!empty(array_diff_assoc($relation, array_except($oldArray, $noDiff)))) {
+                        $relation['table'] = $table_schema->name;
+                        $virtuals[] = $relation;
+                    }
+                }
+            } else {
+                // CREATE
+                // clean out extras
+                $extraNew = array_only($relation, $this->relatedExtras);
+                if (!empty($extraNew['alias']) || !empty($extraNew['label']) || !empty($extraNew['description']) ||
+                    !empty($extraNew['always_fetch']) || !empty($extraNew['flatten']) ||
+                    !empty($extraNew['flatten_drop_prefix'])
+                ) {
+                    $extraNew['table'] = $table_schema->name;
+                    $extraNew['relationship'] = array_get($relation, 'name');
+                    $extras[] = $extraNew;
+                }
+
+                // only virtual
+                if (boolval(array_get($relation, 'is_virtual'))) {
+                    $relation = array_except($relation, $this->relatedExtras);
+                    $relation['table'] = $table_schema->name;
+                    $virtuals[] = $relation;
+                }
+            }
+        }
+
+        if ($allow_delete && isset($oldSchema)) {
+            // check for relations to drop
+            /** @type RelationSchema $oldField */
+            foreach ($oldSchema->getRelations() as $oldRelation) {
+                $found = false;
+                foreach ($related as $relation) {
+                    $relation = array_change_key_case($relation, CASE_LOWER);
+                    if (array_get($relation, 'name') === $oldRelation->name) {
+                        $found = true;
+                    }
+                }
+                if (!$found) {
+                    if ($oldRelation->isVirtual) {
+                        $dropVirtuals[$table_schema->name][] = $oldRelation->toArray();
+                    } else {
+                        $dropExtras[$table_schema->name][] = $oldRelation->name;
+                    }
+                }
+            }
+        }
+
+        return [
+            'related_extras'         => $extras,
+            'drop_related_extras'    => $dropExtras,
+            'virtual_relations'      => $virtuals,
+            'drop_virtual_relations' => $dropVirtuals,
+        ];
+    }
+
     protected function cleanClientField(array &$field)
     {
         $field = array_change_key_case($field, CASE_LOWER);
@@ -2042,598 +2714,6 @@ MYSQL;
         }
 
         return false;
-    }
-
-    /**
-     * @param string $table_name
-     * @param array  $fields
-     *
-     * @throws \Exception
-     * @return string
-     */
-    protected function createTableFields($table_name, $fields)
-    {
-        if (!is_array($fields) || empty($fields)) {
-            throw new \Exception('There are no fields in the requested schema.');
-        }
-
-        if (!isset($fields[0])) {
-            // single record possibly passed in without wrapper array
-            $fields = [$fields];
-        }
-
-        $internalTableName = $table_name;
-        if ((false === strpos($table_name, '.')) && !empty($namingSchema = $this->getNamingSchema())) {
-            $internalTableName = $namingSchema . '.' . $table_name;
-        }
-        $columns = [];
-        $references = [];
-        $indexes = [];
-        $extras = [];
-        $commands = [];
-        foreach ($fields as $field) {
-            $this->cleanClientField($field);
-            $name = array_get($field, 'name');
-
-            // clean out extras
-            $extraNew = array_only($field, $this->fieldExtras);
-            $field = array_except($field, $this->fieldExtras);
-
-            $type = strtolower((string)array_get($field, 'type'));
-            if (!static::PROVIDES_FIELD_SCHEMA || array_get($extraNew, 'is_virtual', false)) {
-                // no need to build what the db doesn't support, use extras and bail
-                $extraNew['extra_type'] = $type;
-            } else {
-                if (static::isUndiscoverableType($type)) {
-                    $extraNew['extra_type'] = $type;
-                }
-                switch ($type) {
-                    case DbSimpleTypes::TYPE_ID:
-                        $pkExtras = $this->getPrimaryKeyCommands($internalTableName, $name);
-                        $commands = array_merge($commands, $pkExtras);
-                        break;
-                }
-
-                if (((DbSimpleTypes::TYPE_REF == $type) || array_get($field, 'is_foreign_key'))) {
-                    // special case for references because the table referenced may not be created yet
-                    if (empty($refTable = array_get($field, 'ref_table'))) {
-                        throw new \Exception("Invalid schema detected - no table element for reference type of $name.");
-                    }
-
-                    if ((false === strpos($refTable, '.')) && !empty($namingSchema = $this->getNamingSchema())) {
-                        $refTable = $namingSchema . '.' . $refTable;
-                    }
-                    $refColumns = array_get($field, 'ref_field', array_get($field, 'ref_fields'));
-                    $refOnDelete = array_get($field, 'ref_on_delete');
-                    $refOnUpdate = array_get($field, 'ref_on_update');
-
-                    if ($this->allowsSeparateForeignConstraint()) {
-                        // will get to it later, $refTable may not be there
-                        $keyName = $this->makeConstraintName('fk', $internalTableName, $name);
-                        $references[] = [
-                            'name'      => $keyName,
-                            'table'     => $internalTableName,
-                            'column'    => $name,
-                            'ref_table' => $refTable,
-                            'ref_field' => $refColumns,
-                            'delete'    => $refOnDelete,
-                            'update'    => $refOnUpdate,
-                        ];
-                    }
-                }
-
-                // regardless of type
-                if (array_get($field, 'is_unique')) {
-                    if ($this->requiresCreateIndex(true, true)) {
-                        // will get to it later, create after table built
-                        $keyName = $this->makeConstraintName('undx', $internalTableName, $name);
-                        $indexes[] = [
-                            'name'   => $keyName,
-                            'table'  => $internalTableName,
-                            'column' => $name,
-                            'unique' => true,
-                        ];
-                    }
-                } elseif (array_get($field, 'is_index')) {
-                    if ($this->requiresCreateIndex(false, true)) {
-                        // will get to it later, create after table built
-                        $keyName = $this->makeConstraintName('ndx', $internalTableName, $name);
-                        $indexes[] = [
-                            'name'   => $keyName,
-                            'table'  => $internalTableName,
-                            'column' => $name,
-                        ];
-                    }
-                }
-
-                $columns[$name] = $field;
-            }
-
-            if (!empty($extraNew)) {
-                $extraNew['table'] = $table_name;
-                $extraNew['field'] = $name;
-                $extras[] = $extraNew;
-            }
-        }
-
-        return [
-            'columns'    => $columns,
-            'references' => $references,
-            'indexes'    => $indexes,
-            'extras'     => $extras,
-            'commands'   => $commands,
-        ];
-    }
-
-    /**
-     * @param TableSchema $table_schema
-     * @param array       $fields
-     * @param bool        $allow_update
-     * @param bool        $allow_delete
-     *
-     * @throws \Exception
-     * @return string
-     */
-    protected function buildTableFields(
-        $table_schema,
-        $fields,
-        $allow_update = false,
-        $allow_delete = false
-    ) {
-        if (!is_array($fields) || empty($fields)) {
-            throw new \Exception('There are no fields in the requested schema.');
-        }
-
-        if (!isset($fields[0])) {
-            // single record possibly passed in without wrapper array
-            $fields = [$fields];
-        }
-
-        $columns = [];
-        $alterColumns = [];
-        $dropColumns = [];
-        $references = [];
-        $indexes = [];
-        $extras = [];
-        $dropExtras = [];
-        $commands = [];
-        foreach ($fields as $field) {
-            $this->cleanClientField($field);
-            $name = array_get($field, 'name');
-
-            /** @type ColumnSchema $oldField */
-            if ($oldField = $table_schema->getColumn($name)) {
-                // UPDATE
-                if (!$allow_update) {
-                    throw new \Exception("Field '$name' already exists in table '{$table_schema->name}'.");
-                }
-
-                $oldArray = $oldField->toArray();
-                $diffFields = array_diff($this->fieldExtras, ['picklist', 'validation', 'db_function']);
-                $extraNew = array_diff_assoc(array_only($field, $diffFields), array_only($oldArray, $diffFields));
-
-                if (array_key_exists('picklist', $field)) {
-                    $picklist = (array)array_get($field, 'picklist');
-                    $oldPicklist = (array)$oldField->picklist;
-                    if ((count($picklist) !== count($oldPicklist)) ||
-                        !empty(array_diff($picklist, $oldPicklist)) ||
-                        !empty(array_diff($oldPicklist, $picklist))
-                    ) {
-                        $extraNew['picklist'] = $picklist;
-                    }
-                }
-
-                if (array_key_exists('validation', $field)) {
-                    $validation = (array)array_get($field, 'validation');
-                    $oldValidation = (array)$oldField->validation;
-                    if (json_encode($validation) !== json_encode($oldValidation)) {
-                        $extraNew['validation'] = $validation;
-                    }
-                }
-
-                if (array_key_exists('db_function', $field)) {
-                    $dbFunction = (array)array_get($field, 'db_function');
-                    $oldFunction = (array)$oldField->dbFunction;
-                    if (json_encode($dbFunction) !== json_encode($oldFunction)) {
-                        $extraNew['db_function'] = $dbFunction;
-                    }
-                }
-
-                // clean out extras
-                $noDiff = array_merge($this->fieldExtras, ['default', 'native']);
-                $settingsNew = array_diff_assoc(array_except($field, $noDiff), array_except($oldArray, $noDiff));
-
-                // may be an array due to expressions
-                if (array_key_exists('default', $settingsNew)) {
-                    $default = $settingsNew['default'];
-                    if ($default !== $oldField->defaultValue) {
-                        $settingsNew['default'] = $default;
-                    }
-                }
-                if (array_key_exists('native', $settingsNew)) {
-                    $native = $settingsNew['native'];
-                    if ($native !== $oldField->native) {
-                        $settingsNew['native'] = $native;
-                    }
-                }
-
-                // if empty, nothing to do here, check extras
-                if (empty($settingsNew)) {
-                    if (!empty($extraNew)) {
-                        $extraNew['table'] = $table_schema->name;
-                        $extraNew['field'] = $name;
-                        $extras[] = $extraNew;
-                    }
-
-                    continue;
-                }
-
-                $type = strtolower((string)array_get($field, 'type'));
-                if (!static::PROVIDES_FIELD_SCHEMA || array_get($extraNew, 'is_virtual',
-                        false) || $oldField->isVirtual
-                ) {
-                    if (!$oldField->isVirtual) {
-                        throw new \Exception("Field '$name' already exists as non-virtual in table '{$table_schema->name}'.");
-                    }
-                    // no need to build what the db doesn't support, use extras and bail
-                    $extraNew['extra_type'] = $type;
-                } else {
-                    if (static::isUndiscoverableType($type)) {
-                        $extraNew['extra_type'] = $type;
-                    }
-                    switch ($type) {
-                        case DbSimpleTypes::TYPE_ID:
-                            $pkExtras = $this->getPrimaryKeyCommands($table_schema->internalName, $name);
-                            $commands = array_merge($commands, $pkExtras);
-                            break;
-                    }
-
-                    if (((DbSimpleTypes::TYPE_REF == $type) || array_get($field, 'is_foreign_key'))) {
-                        // special case for references because the table referenced may not be created yet
-                        if (empty($refTable = array_get($field, 'ref_table'))) {
-                            throw new \Exception("Invalid schema detected - no table element for reference type of $name.");
-                        }
-
-                        if ((false === strpos($refTable, '.')) && !empty($namingSchema = $this->getNamingSchema())) {
-                            $refTable = $namingSchema . '.' . $refTable;
-                        }
-                        $refColumns = array_get($field, 'ref_field', array_get($field, 'ref_fields'));
-                        $refOnDelete = array_get($field, 'ref_on_delete');
-                        $refOnUpdate = array_get($field, 'ref_on_update');
-
-                        if ($this->allowsSeparateForeignConstraint()) {
-                            // will get to it later, $refTable may not be there
-                            $keyName = $this->makeConstraintName('fk', $table_schema->internalName, $name);
-                            $oldForeignKey = $oldField->isForeignKey;
-                            if (!$oldForeignKey) {
-                                $references[] = [
-                                    'name'      => $keyName,
-                                    'table'     => $table_schema->internalName,
-                                    'column'    => $name,
-                                    'ref_table' => $refTable,
-                                    'ref_field' => $refColumns,
-                                    'delete'    => $refOnDelete,
-                                    'update'    => $refOnUpdate,
-                                ];
-                            }
-                        }
-                    }
-
-                    // regardless of type
-                    if (array_get($field, 'is_unique')) {
-                        if ($this->requiresCreateIndex(true)) {
-                            // will get to it later, create after table built
-                            $keyName = $this->makeConstraintName('undx', $table_schema->internalName, $name);
-                            $indexes[] = [
-                                'name'   => $keyName,
-                                'table'  => $table_schema->internalName,
-                                'column' => $name,
-                                'unique' => true,
-                                'drop'   => true,
-                            ];
-                        }
-                    } elseif (array_get($field, 'is_index')) {
-                        if ($this->requiresCreateIndex()) {
-                            // will get to it later, create after table built
-                            $keyName = $this->makeConstraintName('ndx', $table_schema->internalName, $name);
-                            $indexes[] = [
-                                'name'   => $keyName,
-                                'table'  => $table_schema->internalName,
-                                'column' => $name,
-                                'drop'   => true,
-                            ];
-                        }
-                    }
-
-                    $alterColumns[$name] = $field;
-                }
-            } else {
-                // CREATE
-
-                // clean out extras
-                $extraNew = array_only($field, $this->fieldExtras);
-                $field = array_except($field, $this->fieldExtras);
-
-                $type = strtolower((string)array_get($field, 'type'));
-                if (!static::PROVIDES_FIELD_SCHEMA || array_get($extraNew, 'is_virtual', false)) {
-                    // no need to build what the db doesn't support, use extras and bail
-                    $extraNew['extra_type'] = $type;
-                } else {
-                    switch ($type) {
-                        // keep our type extensions
-                        case DbSimpleTypes::TYPE_USER_ID:
-                        case DbSimpleTypes::TYPE_USER_ID_ON_CREATE:
-                        case DbSimpleTypes::TYPE_USER_ID_ON_UPDATE:
-                        case DbSimpleTypes::TYPE_TIMESTAMP_ON_CREATE:
-                        case DbSimpleTypes::TYPE_TIMESTAMP_ON_UPDATE:
-                            $extraNew['extra_type'] = $type;
-                            break;
-                        case DbSimpleTypes::TYPE_ID:
-                            $pkExtras = $this->getPrimaryKeyCommands($table_schema->internalName, $name);
-                            $commands = array_merge($commands, $pkExtras);
-                            break;
-                    }
-
-                    if (((DbSimpleTypes::TYPE_REF == $type) || array_get($field, 'is_foreign_key'))) {
-                        // special case for references because the table referenced may not be created yet
-                        if (empty($refTable = array_get($field, 'ref_table'))) {
-                            throw new \Exception("Invalid schema detected - no table element for reference type of $name.");
-                        }
-
-                        if ((false === strpos($refTable, '.')) && !empty($namingSchema = $this->getNamingSchema())) {
-                            $refTable = $namingSchema . '.' . $refTable;
-                        }
-                        $refColumns = array_get($field, 'ref_field', array_get($field, 'ref_fields'));
-                        $refOnDelete = array_get($field, 'ref_on_delete');
-                        $refOnUpdate = array_get($field, 'ref_on_update');
-
-                        if ($this->allowsSeparateForeignConstraint()) {
-                            // will get to it later, $refTable may not be there
-                            $keyName = $this->makeConstraintName('fk', $table_schema->internalName, $name);
-                            $references[] = [
-                                'name'      => $keyName,
-                                'table'     => $table_schema->internalName,
-                                'column'    => $name,
-                                'ref_table' => $refTable,
-                                'ref_field' => $refColumns,
-                                'delete'    => $refOnDelete,
-                                'update'    => $refOnUpdate,
-                            ];
-                        }
-                    }
-
-                    // regardless of type
-                    if (array_get($field, 'is_unique')) {
-                        if ($this->requiresCreateIndex(true)) {
-                            // will get to it later, create after table built
-                            $keyName = $this->makeConstraintName('undx', $table_schema->internalName, $name);
-                            $indexes[] = [
-                                'name'   => $keyName,
-                                'table'  => $table_schema->internalName,
-                                'column' => $name,
-                                'unique' => true,
-                            ];
-                        }
-                    } elseif (array_get($field, 'is_index')) {
-                        if ($this->requiresCreateIndex()) {
-                            // will get to it later, create after table built
-                            $keyName = $this->makeConstraintName('ndx', $table_schema->internalName, $name);
-                            $indexes[] = [
-                                'name'   => $keyName,
-                                'table'  => $table_schema->internalName,
-                                'column' => $name,
-                            ];
-                        }
-                    }
-
-                    $columns[$name] = $field;
-                }
-            }
-
-            if (!empty($extraNew)) {
-                $extraNew['table'] = $table_schema->name;
-                $extraNew['field'] = $name;
-                $extras[] = $extraNew;
-            }
-        }
-
-        if ($allow_delete) {
-            // check for columns to drop
-            /** @type  ColumnSchema $oldField */
-            foreach ($table_schema->getColumns() as $oldField) {
-                $found = false;
-                foreach ($fields as $field) {
-                    $field = array_change_key_case($field, CASE_LOWER);
-                    if (array_get($field, 'name') === $oldField->name) {
-                        $found = true;
-                    }
-                }
-                if (!$found) {
-                    if (static::PROVIDES_FIELD_SCHEMA && !$oldField->isVirtual) {
-                        $dropColumns[] = $oldField->name;
-                    }
-                    $dropExtras[$table_schema->name][] = $oldField->name;
-                }
-            }
-        }
-
-        return [
-            'columns'       => $columns,
-            'alter_columns' => $alterColumns,
-            'drop_columns'  => $dropColumns,
-            'references'    => $references,
-            'indexes'       => $indexes,
-            'extras'        => $extras,
-            'drop_extras'   => $dropExtras,
-            'commands'      => $commands,
-        ];
-    }
-
-    /**
-     * @param string $table_name
-     * @param array  $related
-     *
-     * @throws \Exception
-     * @return string
-     */
-    public function createTableRelated($table_name, $related)
-    {
-        if (!is_array($related) || empty($related)) {
-            return [];
-        }
-
-        if (!isset($related[0])) {
-            // single record possibly passed in without wrapper array
-            $related = [$related];
-        }
-
-        $extra = [];
-        $virtual = [];
-        foreach ($related as $relation) {
-            $this->cleanClientRelation($relation);
-            // clean out extras
-            $extraNew = array_only($relation, $this->relatedExtras);
-            if (!empty($extraNew['alias']) || !empty($extraNew['label']) || !empty($extraNew['description']) ||
-                !empty($extraNew['always_fetch']) || !empty($extraNew['flatten']) ||
-                !empty($extraNew['flatten_drop_prefix'])
-            ) {
-                $extraNew['table'] = $table_name;
-                $extraNew['relationship'] = array_get($relation, 'name');
-                $extra[] = $extraNew;
-            }
-
-            // only virtual
-            if (boolval(array_get($relation, 'is_virtual'))) {
-                $relation = array_except($relation, $this->relatedExtras);
-                $relation['table'] = $table_name;
-                $virtual[] = $relation;
-            } else {
-                // todo create foreign keys here eventually as well?
-            }
-        }
-
-        return [
-            'related_extras'    => $extra,
-            'virtual_relations' => $virtual,
-        ];
-    }
-
-    /**
-     * @param TableSchema $table_schema
-     * @param array       $related
-     * @param bool        $allow_update
-     * @param bool        $allow_delete
-     *
-     * @throws \Exception
-     * @return string
-     */
-    public function buildTableRelated(
-        $table_schema,
-        $related,
-        $allow_update = false,
-        $allow_delete = false
-    ) {
-        if (!is_array($related) || empty($related)) {
-            throw new \Exception('There are no related elements in the requested schema.');
-        }
-
-        if (!isset($related[0])) {
-            // single record possibly passed in without wrapper array
-            $related = [$related];
-        }
-
-        $extras = [];
-        $dropExtras = [];
-        $virtuals = [];
-        $dropVirtuals = [];
-        foreach ($related as $relation) {
-            $this->cleanClientRelation($relation);
-            $name = array_get($relation, 'name');
-
-            /** @type RelationSchema $oldRelation */
-            if ($oldRelation = $table_schema->getRelation($name)) {
-                // UPDATE
-                if (!$allow_update) {
-                    throw new \Exception("Relation '$name' already exists in table '{$table_schema->name}'.");
-                }
-
-                $oldArray = $oldRelation->toArray();
-                $extraNew = array_only($relation, $this->relatedExtras);
-                $extraOld = array_only($oldArray, $this->relatedExtras);
-                if (!empty($extraNew = array_diff_assoc($extraNew, $extraOld))) {
-                    // if all empty, delete the extras entry, otherwise update
-                    $combined = array_merge($extraOld, $extraNew);
-                    if (!empty($combined['alias']) || !empty($combined['label']) || !empty($combined['description']) ||
-                        !empty($combined['always_fetch']) || !empty($combined['flatten']) ||
-                        !empty($combined['flatten_drop_prefix'])
-                    ) {
-                        $extraNew['table'] = $table_schema->name;
-                        $extraNew['relationship'] = array_get($relation, 'name');
-                        $extras[] = $extraNew;
-                    } else {
-                        $dropExtras[$table_schema->name][] = $oldRelation->name;
-                    }
-                }
-
-                // only virtual
-                if (boolval(array_get($relation, 'is_virtual'))) {
-                    // clean out extras
-                    $noDiff = array_merge($this->relatedExtras, ['native']);
-                    $relation = array_except($relation, $noDiff);
-                    if (!empty(array_diff_assoc($relation, array_except($oldArray, $noDiff)))) {
-                        $relation['table'] = $table_schema->name;
-                        $virtuals[] = $relation;
-                    }
-                }
-            } else {
-                // CREATE
-                // clean out extras
-                $extraNew = array_only($relation, $this->relatedExtras);
-                if (!empty($extraNew['alias']) || !empty($extraNew['label']) || !empty($extraNew['description']) ||
-                    !empty($extraNew['always_fetch']) || !empty($extraNew['flatten']) ||
-                    !empty($extraNew['flatten_drop_prefix'])
-                ) {
-                    $extraNew['table'] = $table_schema->name;
-                    $extraNew['relationship'] = array_get($relation, 'name');
-                    $extras[] = $extraNew;
-                }
-
-                // only virtual
-                if (boolval(array_get($relation, 'is_virtual'))) {
-                    $relation = array_except($relation, $this->relatedExtras);
-                    $relation['table'] = $table_schema->name;
-                    $virtuals[] = $relation;
-                }
-            }
-        }
-
-        if ($allow_delete && isset($oldSchema)) {
-            // check for relations to drop
-            /** @type RelationSchema $oldField */
-            foreach ($oldSchema->getRelations() as $oldRelation) {
-                $found = false;
-                foreach ($related as $relation) {
-                    $relation = array_change_key_case($relation, CASE_LOWER);
-                    if (array_get($relation, 'name') === $oldRelation->name) {
-                        $found = true;
-                    }
-                }
-                if (!$found) {
-                    if ($oldRelation->isVirtual) {
-                        $dropVirtuals[$table_schema->name][] = $oldRelation->toArray();
-                    } else {
-                        $dropExtras[$table_schema->name][] = $oldRelation->name;
-                    }
-                }
-            }
-        }
-
-        return [
-            'related_extras'         => $extras,
-            'drop_related_extras'    => $dropExtras,
-            'virtual_relations'      => $virtuals,
-            'drop_virtual_relations' => $dropVirtuals,
-        ];
     }
 
     /**
@@ -3097,171 +3177,6 @@ MYSQL;
     }
 
     /**
-     * @param      $tables
-     * @param bool $allow_merge
-     * @param bool $allow_delete
-     * @param bool $rollback
-     *
-     * @return array
-     * @throws \Exception
-     */
-    public function updateSchema($tables, $allow_merge = false, $allow_delete = false, $rollback = false)
-    {
-        if (!is_array($tables) || empty($tables)) {
-            throw new \Exception('There are no table sets in the request.');
-        }
-
-        if (!isset($tables[0])) {
-            // single record possibly passed in without wrapper array
-            $tables = [$tables];
-        }
-
-        $created = [];
-        $references = [];
-        $indexes = [];
-        $out = [];
-        $tableExtras = [];
-        $fieldExtras = [];
-        $fieldDrops = [];
-        $relatedExtras = [];
-        $relatedDrops = [];
-        $virtualRelations = [];
-        $virtualRelationDrops = [];
-        $count = 0;
-        $singleTable = (1 == count($tables));
-
-        foreach ($tables as $table) {
-            try {
-                if (empty($tableName = array_get($table, 'name'))) {
-                    throw new \Exception('Table name missing from schema.');
-                }
-
-                //	Does it already exist
-                if (!$tableSchema = $this->getResource(DbResourceTypes::TYPE_TABLE, $tableName)) {
-                    // until views get their own resource
-                    if ($this->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
-                        $tableSchema = $this->getResource(DbResourceTypes::TYPE_VIEW, $tableName);
-                    }
-                }
-                if ($tableSchema) {
-                    if (!$allow_merge) {
-                        throw new \Exception("A table with name '$tableName' already exist in the database.");
-                    }
-
-                    \Log::debug('Schema update: ' . $tableName);
-
-                    $results = [];
-                    if (!empty($fields = array_get($table, 'field'))) {
-                        $results = $this->buildTableFields($tableSchema, $fields, true, $allow_delete);
-                    }
-                    if (!empty($related = array_get($table, 'related'))) {
-                        $related = $this->buildTableRelated($tableSchema, $related, true, $allow_delete);
-                        $results = array_merge($results, $related);
-                    }
-
-                    $this->updateTable($tableSchema, array_merge($table, $results));
-                } else {
-                    \Log::debug('Creating table: ' . $tableName);
-
-                    $results = [];
-                    if (!empty($fields = array_get($table, 'field'))) {
-                        $results = $this->createTableFields($tableName, $fields);
-                    }
-                    if (!empty($related = array_get($table, 'related'))) {
-                        $temp = $this->createTableRelated($tableName, $related);
-                        $results = array_merge($results, $temp);
-                    }
-
-                    $this->createTable($table, $results);
-
-                    if (!$singleTable && $rollback) {
-                        $created[] = $tableName;
-                    }
-                }
-
-                if (!empty($results['commands'])) {
-                    foreach ($results['commands'] as $extraCommand) {
-                        try {
-                            $this->connection->statement($extraCommand);
-                        } catch (\Exception $ex) {
-                            // oh well, we tried.
-                        }
-                    }
-                }
-
-                // add table extras
-                $extras = array_only($table, ['label', 'plural', 'alias', 'description', 'name_field']);
-                if (!empty($extras)) {
-                    $extras['table'] = $tableName;
-                    $tableExtras[] = $extras;
-                }
-
-                $fieldExtras = array_merge($fieldExtras, (array)array_get($results, 'extras'));
-                $fieldDrops = array_merge($fieldDrops, (array)array_get($results, 'drop_extras'));
-                $references = array_merge($references, (array)array_get($results, 'references'));
-                $indexes = array_merge($indexes, (array)array_get($results, 'indexes'));
-                $relatedExtras = array_merge($relatedExtras, (array)array_get($results, 'related_extras'));
-                $relatedDrops = array_merge($relatedDrops, (array)array_get($results, 'drop_related_extras'));
-                $virtualRelations = array_merge($virtualRelations, (array)array_get($results, 'virtual_relations'));
-                $virtualRelationDrops = array_merge($virtualRelationDrops,
-                    (array)array_get($results, 'drop_virtual_relations'));
-
-                $out[$count] = ['name' => $tableName];
-            } catch (\Exception $ex) {
-                if ($rollback || $singleTable) {
-                    //  Delete any created tables
-                    throw $ex;
-                }
-
-                $out[$count] = [
-                    'error' => [
-                        'message' => $ex->getMessage(),
-                        'code'    => $ex->getCode()
-                    ]
-                ];
-            }
-
-            $count++;
-        }
-
-        if (!empty($references)) {
-            $this->createFieldReferences($references);
-        }
-        if (!empty($indexes)) {
-            $this->createFieldIndexes($indexes);
-        }
-        if (!empty($tableExtras)) {
-            $this->setSchemaTableExtras($tableExtras);
-        }
-        if (!empty($fieldExtras)) {
-            $this->setSchemaFieldExtras($fieldExtras);
-        }
-        if (!empty($fieldDrops)) {
-            foreach ($fieldDrops as $table => $dropped) {
-                $this->removeSchemaExtrasForFields($table, $dropped);
-            }
-        }
-        if (!empty($relatedExtras)) {
-            $this->setSchemaRelatedExtras($relatedExtras);
-        }
-        if (!empty($relatedDrops)) {
-            foreach ($relatedDrops as $table => $dropped) {
-                $this->removeSchemaExtrasForRelated($table, $dropped);
-            }
-        }
-        if (!empty($virtualRelations)) {
-            $this->setSchemaVirtualRelationships($virtualRelations);
-        }
-        if (!empty($virtualRelationDrops)) {
-            foreach ($virtualRelationDrops as $table => $dropped) {
-                $this->removeSchemaVirtualRelationships($table, $dropped);
-            }
-        }
-
-        return $out;
-    }
-
-    /**
      * Builds and executes a SQL statement for creating a new DB table.
      *
      * The columns in the new table should be specified as name-definition pairs (e.g. 'name'=>'string'),
@@ -3391,7 +3306,6 @@ MYSQL;
     /**
      * @param array $references
      *
-     * @return array
      */
     protected function createFieldReferences($references)
     {
@@ -3427,7 +3341,6 @@ MYSQL;
     /**
      * @param array $indexes
      *
-     * @return array
      */
     protected function createFieldIndexes($indexes)
     {
@@ -3962,6 +3875,7 @@ MYSQL;
             case 'mediumint':
             case 'int':
             case 'integer':
+            case 'serial': // Informix
                 // watch out for point here!
                 if ($size == 1) {
                     $value = DbSimpleTypes::TYPE_BOOLEAN;
@@ -3972,6 +3886,8 @@ MYSQL;
 
             case 'varint': // java type used in cassandra, possibly others, can be really big
             case 'bigint':
+            case 'bigserial': // Informix
+            case 'serial8': // Informix
                 // bigint too big to represent as number in php
                 $value = DbSimpleTypes::TYPE_BIG_INT;
                 break;
@@ -4005,6 +3921,7 @@ MYSQL;
             //	String types
             case (false !== strpos($type, 'clob')):
             case (false !== strpos($type, 'text')):
+            case 'lvarchar': // informix
                 $value = DbSimpleTypes::TYPE_TEXT;
                 break;
 
