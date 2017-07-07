@@ -4149,17 +4149,18 @@ MYSQL;
      */
     public static function getNativeDateTimeFormat($type)
     {
+        // by default, assume no support for fractional seconds or timezone
         switch (strtolower(strval($type))) {
-            case DbSimpleTypes::TYPE_TIME:
-            case DbSimpleTypes::TYPE_TIME_TZ:
-                return 'H:i:s';
-
             case DbSimpleTypes::TYPE_DATE:
                 return 'Y-m-d';
 
             case DbSimpleTypes::TYPE_DATETIME:
             case DbSimpleTypes::TYPE_DATETIME_TZ:
                 return 'Y-m-d H:i:s';
+
+            case DbSimpleTypes::TYPE_TIME:
+            case DbSimpleTypes::TYPE_TIME_TZ:
+                return 'H:i:s';
 
             case DbSimpleTypes::TYPE_TIMESTAMP:
             case DbSimpleTypes::TYPE_TIMESTAMP_TZ:
