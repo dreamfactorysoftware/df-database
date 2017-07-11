@@ -3,6 +3,8 @@ All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
+### Fixed
+- DF-269 Creating Belongs_To and Many_Many relationship records correctly
 
 ## [0.4.0] - 2017-06-05
 ### Fixed
