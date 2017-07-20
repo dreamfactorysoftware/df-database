@@ -14,10 +14,9 @@ use DreamFactory\Core\Exceptions\NotFoundException;
 use DreamFactory\Core\Exceptions\NotImplementedException;
 use DreamFactory\Core\Database\Resources\BaseDbResource;
 use DreamFactory\Core\Services\BaseRestService;
-use DreamFactory\Core\Utility\Session;
 use Illuminate\Database\ConnectionInterface;
 
-abstract class BaseDbService extends BaseRestService  implements CachedInterface, CacheInterface, DbExtrasInterface
+abstract class BaseDbService extends BaseRestService implements CachedInterface, CacheInterface, DbExtrasInterface
 {
     use DbSchemaExtras, Cacheable;
 
@@ -25,10 +24,6 @@ abstract class BaseDbService extends BaseRestService  implements CachedInterface
     //	Members
     //*************************************************************************
 
-    /**
-     * @var array Array of resource defining arrays
-     */
-    protected static $resources = [];
     /**
      * @type bool
      */
@@ -120,14 +115,6 @@ abstract class BaseDbService extends BaseRestService  implements CachedInterface
         return $output;
     }
 
-    /**
-     * {@inheritdoc}
-     */
-    public function getResources($only_handlers = false)
-    {
-        return ($only_handlers) ? static::$resources : array_values(static::$resources);
-    }
-
     protected function initializeConnection()
     {
         throw new InternalServerErrorException('Database connection has not been initialized.');
@@ -189,37 +176,5 @@ abstract class BaseDbService extends BaseRestService  implements CachedInterface
 
             throw $ex;
         }
-    }
-
-    public static function getApiDocInfo($service)
-    {
-        $base = parent::getApiDocInfo($service);
-
-        $apis = [];
-        $models = [];
-        foreach (static::$resources as $resourceInfo) {
-            $resourceClass = array_get($resourceInfo, 'class_name');
-
-            if (!class_exists($resourceClass)) {
-                throw new InternalServerErrorException('Service configuration class name lookup failed for resource ' .
-                    $resourceClass);
-            }
-
-            $resourceName = array_get($resourceInfo, static::RESOURCE_IDENTIFIER);
-            if (Session::checkForAnyServicePermissions($service->name, $resourceName)) {
-                $results = $resourceClass::getApiDocInfo($service->name, $resourceInfo);
-                if (isset($results, $results['paths'])) {
-                    $apis = array_merge($apis, $results['paths']);
-                }
-                if (isset($results, $results['definitions'])) {
-                    $models = array_merge($models, $results['definitions']);
-                }
-            }
-        }
-
-        $base['paths'] = array_merge($base['paths'], $apis);
-        $base['definitions'] = array_merge($base['definitions'], $models);
-
-        return $base;
     }
 }
