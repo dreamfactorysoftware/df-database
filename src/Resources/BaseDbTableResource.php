@@ -2621,8 +2621,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             Session::checkServicePermission(Verbs::GET, $junctionService, '_table/' . $junctionTable);
 
             // Get records
-            $filter =
-                $junctionField->getName(true) . " = $one_id AND (" . $junctionRefField->getName(true) . " IS NOT NULL)";
+            $filter = "({$junctionField->getName(true)} = $one_id) AND ({$junctionRefField->getName(true)} IS NOT NULL)";
             $temp = [ApiOptions::FILTER => $filter, ApiOptions::FIELDS => $junctionRefField->getName(true)];
 
             $maps = $this->retrieveVirtualRecords($junctionService, '_table/' . $junctionTable, $temp);
@@ -2704,8 +2703,10 @@ abstract class BaseDbTableResource extends BaseDbResource
                 // create new many records
                 foreach ($refIds as $refId) {
                     if (!empty($refId)) {
-                        $createMap[] =
-                            [$junctionRefField->getName(true) => $refId, $junctionField->getName(true) => $one_id];
+                        $createMap[] = [
+                            $junctionRefField->getName(true) => array_get($refId, $refPkFieldAlias),
+                            $junctionField->getName(true) => $one_id
+                        ];
                     }
                 }
             }
