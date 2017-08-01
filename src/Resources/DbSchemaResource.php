@@ -1141,7 +1141,7 @@ class DbSchemaResource extends BaseDbResource
         $fields = static::validateAsArray($properties, null, true, 'Bad data format in request.');
 
         $tables = [['name' => $table, 'field' => $fields]];
-        $result = $this->parent->getSchema()->updateSchema($tables, true, $allow_delete_parts);
+        $result = $this->parent->getSchema()->updateSchema($tables, true, false);
         $result = array_get(array_get($result, 0, []), 'field', []);
 
         //  Any changes here should refresh cached schema
@@ -1213,7 +1213,7 @@ class DbSchemaResource extends BaseDbResource
         $fields = static::validateAsArray($properties, null, true, 'Bad data format in request.');
 
         $tables = [['name' => $table, 'related' => $fields]];
-        $result = $this->parent->getSchema()->updateSchema($tables, true, $allow_delete_parts);
+        $result = $this->parent->getSchema()->updateSchema($tables, true, false);
         $result = array_get(array_get($result, 0, []), 'related', []);
 
         //  Any changes here should refresh cached schema
