@@ -4,6 +4,10 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.1] - 2017-08-01
+### Fixed
+- Updating a single or multiple fields through _field resource should not be allowed to delete fields.
+ 
 ## [0.5.0] - 2017-07-27
 ### Fixed
 - DF-269 Creating Belongs_To and Many_Many relationship records correctly
@@ -49,7 +53,8 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 ## 0.1.0 - 2015-10-24
 First official release working with the new [dreamfactory](https://github.com/dreamfactorysoftware/dreamfactory) project.
 
-[Unreleased]: https://github.com/dreamfactorysoftware/df-database/compare/0.5.0...HEAD
+[Unreleased]: https://github.com/dreamfactorysoftware/df-database/compare/0.5.1...HEAD
+[0.5.1]: https://github.com/dreamfactorysoftware/df-database/compare/0.5.0...0.5.1
 [0.5.0]: https://github.com/dreamfactorysoftware/df-database/compare/0.4.0...0.5.0
 [0.4.0]: https://github.com/dreamfactorysoftware/df-database/compare/0.3.0...0.4.0
 [0.3.0]: https://github.com/dreamfactorysoftware/df-database/compare/0.2.0...0.3.0
