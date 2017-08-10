@@ -3,6 +3,7 @@
 namespace DreamFactory\Core\Database\Resources;
 
 use DreamFactory\Core\Components\DataValidator;
+use DreamFactory\Core\Database\Components\TableDescriber;
 use DreamFactory\Core\Database\Schema\ColumnSchema;
 use DreamFactory\Core\Database\Schema\RelationSchema;
 use DreamFactory\Core\Database\Schema\TableSchema;
@@ -20,7 +21,7 @@ use DreamFactory\Core\Enums\Verbs;
 
 class DbSchemaResource extends BaseDbResource
 {
-    use DataValidator;
+    use DataValidator, TableDescriber;
 
     //*************************************************************************
     //	Constants
@@ -2170,7 +2171,7 @@ class DbSchemaResource extends BaseDbResource
                     'summary'     => 'describe' .
                         $capitalized .
                         'Relationship() - Retrieve the definition of the given relationship for the given table.',
-                    'operationId' => 'describe' . $capitalized . 'Field',
+                    'operationId' => 'describe' . $capitalized . 'Relationship',
                     'parameters'  => [
                         [
                             'name'        => 'refresh',
@@ -2283,7 +2284,7 @@ class DbSchemaResource extends BaseDbResource
                     'summary'     => 'describe' .
                         $capitalized .
                         'Field() - Retrieve the definition of the given field for the given table. DEPRECATED',
-                    'operationId' => 'describe' . $capitalized . 'Field',
+                    'operationId' => 'describe' . $capitalized . 'FieldDeprecated',
                     'parameters'  => [
                         [
                             'name'        => 'refresh',
@@ -2307,7 +2308,7 @@ class DbSchemaResource extends BaseDbResource
                 'put'        => [
                     'tags'        => [$serviceName],
                     'summary'     => 'replace' . $capitalized . 'Field() - Update one field by identifier. DEPRECATED',
-                    'operationId' => 'replace' . $capitalized . 'Field',
+                    'operationId' => 'replace' . $capitalized . 'FieldDeprecated',
                     'parameters'  => [
                         [
                             'name'        => 'properties',
@@ -2332,7 +2333,7 @@ class DbSchemaResource extends BaseDbResource
                 'patch'      => [
                     'tags'        => [$serviceName],
                     'summary'     => 'update' . $capitalized . 'Field() - Update one field by identifier. DEPRECATED',
-                    'operationId' => 'update' . $capitalized . 'Field',
+                    'operationId' => 'update' . $capitalized . 'FieldDeprecated',
                     'parameters'  => [
                         [
                             'name'        => 'properties',
@@ -2359,7 +2360,7 @@ class DbSchemaResource extends BaseDbResource
                     'summary'     => 'delete' .
                         $capitalized .
                         'Field() - Remove the given field from the given table. DEPRECATED',
-                    'operationId' => 'delete' . $capitalized . 'Field',
+                    'operationId' => 'delete' . $capitalized . 'FieldDeprecated',
                     'parameters'  => [],
                     'responses'   => [
                         '200'     => [
@@ -2402,7 +2403,7 @@ class DbSchemaResource extends BaseDbResource
         ];
 
         $base['paths'] = array_merge($base['paths'], $apis);
-        $base['definitions'] = array_merge($base['definitions'], $models);
+        $base['definitions'] = array_merge($base['definitions'], $models, static::getApiDocCommonModels());
 
         return $base;
     }

@@ -6,6 +6,7 @@ use Config;
 use DreamFactory\Core\Components\DataValidator;
 use DreamFactory\Core\Components\Service2ServiceRequest;
 use DreamFactory\Core\Contracts\ServiceInterface;
+use DreamFactory\Core\Database\Components\TableDescriber;
 use DreamFactory\Core\Database\Enums\DbFunctionUses;
 use DreamFactory\Core\Database\Schema\RelationSchema;
 use DreamFactory\Core\Database\Schema\TableSchema;
@@ -15,6 +16,7 @@ use DreamFactory\Core\Enums\DbComparisonOperators;
 use DreamFactory\Core\Enums\DbLogicalOperators;
 use DreamFactory\Core\Enums\DbResourceTypes;
 use DreamFactory\Core\Enums\DbSimpleTypes;
+use DreamFactory\Core\Enums\Verbs;
 use DreamFactory\Core\Enums\VerbsMask;
 use DreamFactory\Core\Exceptions\BadRequestException;
 use DreamFactory\Core\Exceptions\BatchException;
@@ -23,15 +25,13 @@ use DreamFactory\Core\Exceptions\NotFoundException;
 use DreamFactory\Core\Exceptions\NotImplementedException;
 use DreamFactory\Core\Exceptions\InternalServerErrorException;
 use DreamFactory\Core\Exceptions\RestException;
-use DreamFactory\Core\Models\Service;
 use DreamFactory\Core\Utility\ResourcesWrapper;
 use DreamFactory\Core\Utility\Session;
-use DreamFactory\Core\Enums\Verbs;
 use ServiceManager;
 
 abstract class BaseDbTableResource extends BaseDbResource
 {
-    use DataValidator;
+    use DataValidator, TableDescriber;
 
     //*************************************************************************
     //	Constants
@@ -463,7 +463,8 @@ abstract class BaseDbTableResource extends BaseDbResource
 
             $asList = $this->request->getParameterAsBool(ApiOptions::AS_LIST);
             $idField = $this->request->getParameter(ApiOptions::ID_FIELD, static::getResourceIdentifier());
-            $result = ResourcesWrapper::cleanResources($result, $asList, $idField, ApiOptions::FIELDS_ALL, !empty($meta));
+            $result = ResourcesWrapper::cleanResources($result, $asList, $idField, ApiOptions::FIELDS_ALL,
+                !empty($meta));
 
             if (!empty($meta)) {
                 $result['meta'] = $meta;
@@ -1996,7 +1997,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         switch ($relation->type) {
             case RelationSchema::BELONGS_TO:
                 $refService = ($this->getServiceId() !== $relation->refServiceId) ?
-                    Service::getCachedNameById($relation->refServiceId) :
+                    ServiceManager::getServiceNameById($relation->refServiceId) :
                     $this->getServiceName();
                 $refSchema = $this->getTableSchema($refService, $relation->refTable);
                 $refTable = $refSchema->getName(true);
@@ -2037,7 +2038,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                 break;
             case RelationSchema::HAS_MANY:
                 $refService = ($this->getServiceId() !== $relation->refServiceId) ?
-                    Service::getCachedNameById($relation->refServiceId) :
+                    ServiceManager::getServiceNameById($relation->refServiceId) :
                     $this->getServiceName();
                 $refSchema = $this->getTableSchema($refService, $relation->refTable);
                 $refTable = $refSchema->getName(true);
@@ -2077,7 +2078,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                 break;
             case RelationSchema::MANY_MANY:
                 $junctionService = ($this->getServiceId() !== $relation->junctionServiceId) ?
-                    Service::getCachedNameById($relation->junctionServiceId) :
+                    ServiceManager::getServiceNameById($relation->junctionServiceId) :
                     $this->getServiceName();
                 $junctionSchema = $this->getTableSchema($junctionService, $relation->junctionTable);
                 $junctionTable = $junctionSchema->getName(true);
@@ -2113,7 +2114,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                     }
                     if (!empty($relatedIds)) {
                         $refService = ($this->getServiceId() !== $relation->refServiceId) ?
-                            Service::getCachedNameById($relation->refServiceId) :
+                            ServiceManager::getServiceNameById($relation->refServiceId) :
                             $this->getServiceName();
                         $refSchema = $this->getTableSchema($refService, $relation->refTable);
                         $refTable = $refSchema->getName(true);
@@ -2178,7 +2179,7 @@ abstract class BaseDbTableResource extends BaseDbResource
     {
         try {
             $refService = ($this->getServiceId() !== $relation->refServiceId) ?
-                Service::getCachedNameById($relation->refServiceId) :
+                ServiceManager::getServiceNameById($relation->refServiceId) :
                 $this->getServiceName();
             $refSchema = $this->getTableSchema($refService, $relation->refTable);
             $refTable = $refSchema->getName(true);
@@ -2271,7 +2272,7 @@ abstract class BaseDbTableResource extends BaseDbResource
 
         try {
             $refService = ($this->getServiceId() !== $relation->refServiceId) ?
-                Service::getCachedNameById($relation->refServiceId) :
+                ServiceManager::getServiceNameById($relation->refServiceId) :
                 $this->getServiceName();
             $refSchema = $this->getTableSchema($refService, $relation->refTable);
             $refTable = $refSchema->getName(true);
@@ -2584,7 +2585,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             }
 
             $refService = ($this->getServiceId() !== $relation->refServiceId) ?
-                Service::getCachedNameById($relation->refServiceId) :
+                ServiceManager::getServiceNameById($relation->refServiceId) :
                 $this->getServiceName();
             $refSchema = $this->getTableSchema($refService, $relation->refTable);
             $refTable = $refSchema->getName(true);
@@ -2606,7 +2607,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             }
 
             $junctionService = ($this->getServiceId() !== $relation->junctionServiceId) ?
-                Service::getCachedNameById($relation->junctionServiceId) :
+                ServiceManager::getServiceNameById($relation->junctionServiceId) :
                 $this->getServiceName();
             $junctionSchema = $this->getTableSchema($junctionService, $relation->junctionTable);
             $junctionTable = $junctionSchema->getName(true);
@@ -2705,7 +2706,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                     if (!empty($refId)) {
                         $createMap[] = [
                             $junctionRefField->getName(true) => array_get($refId, $refPkFieldAlias),
-                            $junctionField->getName(true) => $one_id
+                            $junctionField->getName(true)    => $one_id
                         ];
                     }
                 }
@@ -2820,7 +2821,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                 }
                 if (!is_null($value)) {
                     if (!is_array($value)) {
-                        $value = $this->schema->typecastToNative($value, $info);
+                        $value = $this->parent->getSchema()->typecastToNative($value, $info);
                     }
                     $id = $value;
                 } else {
@@ -2844,7 +2845,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                     }
                     if (!is_null($value)) {
                         if (!is_array($value)) {
-                            $value = $this->schema->typecastToNative($value, $info);
+                            $value = $this->parent->getSchema()->typecastToNative($value, $info);
                         }
                         $id[$name] = $value;
                     } else {
@@ -2883,11 +2884,11 @@ abstract class BaseDbTableResource extends BaseDbResource
      */
     protected function parseValueForSet($value, $field_info, $for_update = false)
     {
-        $value = $this->schema->typecastToNative($value, $field_info);
+        $value = $this->parent->getSchema()->typecastToNative($value, $field_info);
 
         if (!empty($function = $field_info->getDbFunction($for_update ? DbFunctionUses::UPDATE : DbFunctionUses::INSERT))) {
             $function = str_ireplace('{value}', (is_string($value) ? "'$value'" : $value), $function);
-            $value = $this->dbConn->raw($function);
+            $value = $this->parent->getConnection()->raw($function);
         }
 
         return $value;
@@ -4341,7 +4342,8 @@ abstract class BaseDbTableResource extends BaseDbResource
         ];
 
         $base['paths'] = array_merge($base['paths'], $apis);
-        $base['definitions'] = array_merge($base['definitions'], static::getApiDocModels());
+        $base['definitions'] = array_merge($base['definitions'], static::getApiDocModels(),
+            static::getApiDocCommonModels());
 
         return $base;
     }

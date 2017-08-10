@@ -20,9 +20,9 @@ use DreamFactory\Core\Exceptions\BadRequestException;
 use DreamFactory\Core\Exceptions\InternalServerErrorException;
 use DreamFactory\Core\Exceptions\NotFoundException;
 use DreamFactory\Core\Exceptions\NotImplementedException;
-use DreamFactory\Core\Models\Service;
 use Illuminate\Database\Connection;
 use Illuminate\Database\ConnectionInterface;
+use ServiceManager;
 
 /**
  * Schema is the base class for retrieving metadata information.
@@ -1150,11 +1150,11 @@ class Schema implements SchemaInterface
                 $junctionService = null;
                 $si = array_get($extra, 'ref_service_id');
                 if ($this->getServiceId() !== $si) {
-                    $refService = Service::getCachedNameById($si);
+                    $refService = ServiceManager::getServiceNameById($si);
                 }
                 $si = array_get($extra, 'junction_service_id');
                 if (!empty($si) && ($this->getServiceId() !== $si)) {
-                    $junctionService = Service::getCachedNameById($si);
+                    $junctionService = ServiceManager::getServiceNameById($si);
                 }
                 $extra['name'] = RelationSchema::buildName(
                     array_get($extra, 'type'),

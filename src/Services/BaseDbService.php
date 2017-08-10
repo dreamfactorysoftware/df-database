@@ -3,16 +3,18 @@
 namespace DreamFactory\Core\Database\Services;
 
 use DreamFactory\Core\Components\Cacheable;
-use DreamFactory\Core\Database\Components\DbSchemaExtras;
 use DreamFactory\Core\Contracts\CachedInterface;
 use DreamFactory\Core\Contracts\CacheInterface;
 use DreamFactory\Core\Contracts\DbExtrasInterface;
 use DreamFactory\Core\Contracts\SchemaInterface;
+use DreamFactory\Core\Database\Components\DbSchemaExtras;
+use DreamFactory\Core\Database\Resources\BaseDbResource;
+use DreamFactory\Core\Database\Resources\BaseDbTableResource;
+use DreamFactory\Core\Database\Resources\DbSchemaResource;
 use DreamFactory\Core\Enums\ApiOptions;
 use DreamFactory\Core\Exceptions\InternalServerErrorException;
 use DreamFactory\Core\Exceptions\NotFoundException;
 use DreamFactory\Core\Exceptions\NotImplementedException;
-use DreamFactory\Core\Database\Resources\BaseDbResource;
 use DreamFactory\Core\Services\BaseRestService;
 use Illuminate\Database\ConnectionInterface;
 
@@ -40,6 +42,19 @@ abstract class BaseDbService extends BaseRestService implements CachedInterface,
      * @var SchemaInterface
      */
     protected $schema;
+
+    protected static $resources = [
+        DbSchemaResource::RESOURCE_NAME    => [
+            'name'       => DbSchemaResource::RESOURCE_NAME,
+            'class_name' => DbSchemaResource::class,
+            'label'      => 'Schema',
+        ],
+        BaseDbTableResource::RESOURCE_NAME => [
+            'name'       => BaseDbTableResource::RESOURCE_NAME,
+            'class_name' => BaseDbTableResource::class,
+            'label'      => 'Tables',
+        ],
+    ];
 
     //*************************************************************************
     //	Methods
