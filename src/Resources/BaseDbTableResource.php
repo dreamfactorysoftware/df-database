@@ -104,13 +104,7 @@ abstract class BaseDbTableResource extends BaseDbResource
      */
     public function listResources($schema = null, $refresh = false)
     {
-        /** @type TableSchema[] $result */
-        $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE, $schema, $refresh);
-        if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
-            // temporary until view is moved to its own resource
-            $result2 = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schema, $refresh);
-            $result = array_merge($result, $result2);
-        }
+        $result = $this->getTableNames($schema, $refresh);
         $resources = [];
         foreach ($result as $table) {
             $name = $table->getName(true);
@@ -151,13 +145,7 @@ abstract class BaseDbTableResource extends BaseDbResource
 
         $refresh = $this->request->getParameterAsBool(ApiOptions::REFRESH);
         $schema = $this->request->getParameter(ApiOptions::SCHEMA, '');
-        /** @type TableSchema[] $result */
-        $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE, $schema, $refresh);
-        if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
-            // temporary until view is moved to its own resource
-            $result2 = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schema, $refresh);
-            $result = array_merge($result, $result2);
-        }
+        $result = $this->getTableNames($schema, $refresh);
         $resources = [];
         foreach ($result as $table) {
             $access = $this->getPermissions($table->getName(true));
@@ -169,6 +157,51 @@ abstract class BaseDbTableResource extends BaseDbResource
         }
 
         return $resources;
+    }
+
+    /**
+     * @param string $schema
+     * @param bool   $refresh
+     * @return TableSchema[]
+     */
+    protected function getTableNames($schema = null, $refresh = false)
+    {
+        if ($refresh || (empty($tables = $this->parent->getFromCache('tables')))) {
+            $tables = [];
+            foreach ($this->parent->getSchemas() as $schemaName) {
+                $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE, $schemaName);
+                $tables = array_merge($tables, $result);
+                // Until views are separated as separate resource
+                if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
+                    $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schemaName);
+                    $tables = array_merge($tables, $result);
+                }
+            }
+            ksort($tables, SORT_NATURAL); // sort alphabetically
+            // merge db extras
+            if (!empty($extrasEntries = $this->getSchemaExtrasForTables(array_keys($tables)))) {
+                foreach ($extrasEntries as $extras) {
+                    if (!empty($extraName = strtolower(strval($extras['table'])))) {
+                        if (array_key_exists($extraName, $tables)) {
+                            $tables[$extraName]->fill(array_except($extras, 'id'));
+                        }
+                    }
+                }
+            }
+            $this->parent->addToCache('tables', $tables, true);
+        }
+        if (!empty($schema)) {
+            $out = [];
+            foreach ($tables as $table => $info) {
+                if (starts_with($table, $schema . '.')) {
+                    $out[$table] = $info;
+                }
+            }
+
+            $tables = $out;
+        }
+
+        return $tables;
     }
 
     /**
@@ -184,19 +217,12 @@ abstract class BaseDbTableResource extends BaseDbResource
             throw new \InvalidArgumentException('Table name cannot be empty.');
         }
 
-        //  Build the lower-cased table array
-        /** @var TableSchema[] $result */
-        $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE);
-        if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
-            // temporary until view is moved to its own resource
-            $result2 = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW);
-            $result = array_merge($result, $result2);
-        }
+        $result = $this->getTableNames();
+        // re-key by alias
         $tables = [];
         foreach ($result as $table) {
             $tables[strtolower($table->getName(true))] = $table;
         }
-
         //	Search normal, return real name
         $ndx = strtolower($name);
         if (isset($tables[$ndx])) {
@@ -1918,15 +1944,20 @@ abstract class BaseDbTableResource extends BaseDbResource
                 return new TableSchema($result);
             }
         } else {
-            if ($result = $this->parent->getSchema()->getResource(DbResourceTypes::TYPE_TABLE, $table)) {
-                return $result;
-            }
-            if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
-                // temporary until view gets its own resource
-                if ($result = $this->parent->getSchema()->getResource(DbResourceTypes::TYPE_VIEW, $table)) {
-                    return $result;
+            if (empty($result = $this->parent->getFromCache('table:' . strtolower($table)))) {
+                if ($tableSchema = array_get($this->getTableNames(), strtolower($table))) {
+                    /** @type TableSchema $result */
+                    if ($result = $this->parent->getSchema()->getResource(DbResourceTypes::TYPE_TABLE, $tableSchema)) {
+                        $this->parent->addToCache('table:' . strtolower($table), $result, true);
+                    } elseif ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
+                        if ($result = $this->parent->getSchema()->getResource(DbResourceTypes::TYPE_VIEW, $tableSchema)) {
+                            $this->parent->addToCache('table:' . strtolower($table), $result, true);
+                        }
+                    }
                 }
             }
+
+            return $result;
         }
 
         return null;

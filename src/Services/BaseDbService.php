@@ -12,8 +12,8 @@ use DreamFactory\Core\Database\Resources\BaseDbResource;
 use DreamFactory\Core\Database\Resources\BaseDbTableResource;
 use DreamFactory\Core\Database\Resources\DbSchemaResource;
 use DreamFactory\Core\Enums\ApiOptions;
+use DreamFactory\Core\Enums\DbResourceTypes;
 use DreamFactory\Core\Exceptions\InternalServerErrorException;
-use DreamFactory\Core\Exceptions\NotFoundException;
 use DreamFactory\Core\Exceptions\NotImplementedException;
 use DreamFactory\Core\Services\BaseRestService;
 use Illuminate\Database\ConnectionInterface;
@@ -147,6 +147,17 @@ abstract class BaseDbService extends BaseRestService implements CachedInterface,
         return $this->dbConn;
     }
 
+    public function getSchemas($refresh = false)
+    {
+        if ($refresh || (empty($result = $this->getFromCache('schemas')))) {
+            /** @type string[] $result */
+            $result = $this->getSchema()->getResourceNames(DbResourceTypes::TYPE_SCHEMA);
+            $this->addToCache('schemas', $result, true);
+        }
+
+        return $result;
+    }
+
     /**
      * @throws \Exception
      * @return SchemaInterface
@@ -161,35 +172,5 @@ abstract class BaseDbService extends BaseRestService implements CachedInterface,
         }
 
         return $this->schema;
-    }
-
-    /**
-     */
-    public function refreshTableCache()
-    {
-        $this->getSchema()->refresh();
-    }
-
-    /**
-     * {@InheritDoc}
-     */
-    protected function handleResource(array $resources)
-    {
-        try {
-            return parent::handleResource($resources);
-        } catch (NotFoundException $ex) {
-            // If version 1.x, the resource could be a table
-//            if ($this->request->getApiVersion())
-//            {
-//                $resource = $this->instantiateResource( Table::class, [ 'name' => $this->resource ] );
-//                $newPath = $this->resourceArray;
-//                array_shift( $newPath );
-//                $newPath = implode( '/', $newPath );
-//
-//                return $resource->handleRequest( $this->request, $newPath, $this->outputFormat );
-//            }
-
-            throw $ex;
-        }
     }
 }
