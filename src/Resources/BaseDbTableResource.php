@@ -8,6 +8,7 @@ use DreamFactory\Core\Components\Service2ServiceRequest;
 use DreamFactory\Core\Contracts\ServiceInterface;
 use DreamFactory\Core\Database\Components\TableDescriber;
 use DreamFactory\Core\Database\Enums\DbFunctionUses;
+use DreamFactory\Core\Database\Enums\FunctionTypes;
 use DreamFactory\Core\Database\Schema\RelationSchema;
 use DreamFactory\Core\Database\Schema\TableSchema;
 use DreamFactory\Core\Database\Schema\ColumnSchema;
@@ -1945,14 +1946,100 @@ abstract class BaseDbTableResource extends BaseDbResource
             }
         } else {
             if (empty($result = $this->parent->getFromCache('table:' . strtolower($table)))) {
+                $schema = $this->parent->getSchema();
                 if ($tableSchema = array_get($this->getTableNames(), strtolower($table))) {
                     /** @type TableSchema $result */
-                    if ($result = $this->parent->getSchema()->getResource(DbResourceTypes::TYPE_TABLE, $tableSchema)) {
-                        $this->parent->addToCache('table:' . strtolower($table), $result, true);
-                    } elseif ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
-                        if ($result = $this->parent->getSchema()->getResource(DbResourceTypes::TYPE_VIEW, $tableSchema)) {
-                            $this->parent->addToCache('table:' . strtolower($table), $result, true);
+                    if (!$result = $schema->getResource(DbResourceTypes::TYPE_TABLE, $tableSchema)) {
+                        if ($schema->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
+                            $result = $schema->getResource(DbResourceTypes::TYPE_VIEW, $tableSchema);
                         }
+                    }
+                    if ($result) {
+                        $tableSchema = $result;
+                        // merge db extras
+                        if (!empty($extras = $this->getSchemaExtrasForFields($tableSchema->name))) {
+                            foreach ($extras as $extra) {
+                                if (!empty($columnName = array_get($extra, 'field'))) {
+                                    unset($extra['field']);
+                                    if (!empty($type = array_get($extra, 'extra_type'))) {
+                                        $extra['type'] = $type;
+                                        // upgrade old entries
+                                        if ('virtual' === $type) {
+                                            $extra['is_virtual'] = true;
+                                            if (!empty($functionInfo = array_get($extra, 'db_function'))) {
+                                                $type = $extra['type'] = array_get($functionInfo, 'type', DbSimpleTypes::TYPE_STRING);
+                                                if ($function = array_get($functionInfo, 'function')) {
+                                                    $extra['db_function'] = [
+                                                        [
+                                                            'use'           => [DbFunctionUses::SELECT],
+                                                            'function'      => $function,
+                                                            'function_type' => FunctionTypes::DATABASE,
+                                                        ]
+                                                    ];
+                                                }
+                                                if ($aggregate = array_get($functionInfo, 'aggregate')) {
+                                                    $extra['is_aggregate'] = $aggregate;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    unset($extra['extra_type']);
+
+                                    if (!empty($alias = array_get($extra, 'alias'))) {
+                                        $extra['quotedAlias'] = $schema->quoteColumnName($alias);
+                                    }
+
+                                    if (null !== $c = $result->getColumn($columnName)) {
+                                        $c->fill($extra);
+                                    } elseif (!empty($type) && (array_get($extra, 'is_virtual') ||
+                                            !$schema->supportsResourceType(DbResourceTypes::TYPE_TABLE_FIELD))) {
+                                        $extra['name'] = $columnName;
+                                        $c = new ColumnSchema($extra);
+                                        $c->quotedName = $schema->quoteColumnName($c->name);
+                                        $tableSchema->addColumn($c);
+                                    }
+                                }
+                            }
+                        }
+                        if (!empty($extras = $this->getSchemaVirtualRelationships($tableSchema->name))) {
+                            foreach ($extras as $extra) {
+                                $refService = null;
+                                $junctionService = null;
+                                $si = array_get($extra, 'ref_service_id');
+                                if ($this->getServiceId() !== $si) {
+                                    $refService = ServiceManager::getServiceNameById($si);
+                                }
+                                $si = array_get($extra, 'junction_service_id');
+                                if (!empty($si) && ($this->getServiceId() !== $si)) {
+                                    $junctionService = ServiceManager::getServiceNameById($si);
+                                }
+                                $extra['name'] = RelationSchema::buildName(
+                                    array_get($extra, 'type'),
+                                    array_get($extra, 'field'),
+                                    $refService,
+                                    array_get($extra, 'ref_table'),
+                                    array_get($extra, 'ref_field'),
+                                    $junctionService,
+                                    array_get($extra, 'junction_table')
+                                );
+                                $relation = new RelationSchema($extra);
+                                $relation->isVirtual = true;
+                                $tableSchema->addRelation($relation);
+                            }
+                        }
+                        if (!empty($extras = $this->getSchemaExtrasForRelated($tableSchema->name))) {
+                            foreach ($extras as $extra) {
+                                if (!empty($relatedName = array_get($extra, 'relationship'))) {
+                                    if (null !== $relationship = $tableSchema->getRelation($relatedName)) {
+                                        $relationship->fill($extra);
+                                        if (isset($extra['always_fetch']) && $extra['always_fetch']) {
+                                            $tableSchema->fetchRequiresRelations = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        $this->parent->addToCache('table:' . strtolower($table), $tableSchema, true);
                     }
                 }
             }

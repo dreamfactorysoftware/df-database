@@ -147,17 +147,6 @@ abstract class BaseDbService extends BaseRestService implements CachedInterface,
         return $this->dbConn;
     }
 
-    public function getSchemas($refresh = false)
-    {
-        if ($refresh || (empty($result = $this->getFromCache('schemas')))) {
-            /** @type string[] $result */
-            $result = $this->getSchema()->getResourceNames(DbResourceTypes::TYPE_SCHEMA);
-            $this->addToCache('schemas', $result, true);
-        }
-
-        return $result;
-    }
-
     /**
      * @throws \Exception
      * @return SchemaInterface
@@ -169,8 +158,20 @@ abstract class BaseDbService extends BaseRestService implements CachedInterface,
             if (!isset($this->schema)) {
                 throw new InternalServerErrorException('Database schema extension has not been initialized.');
             }
+            $this->schema->setServiceId($this->getServiceId());
         }
 
         return $this->schema;
+    }
+
+    public function getSchemas($refresh = false)
+    {
+        if ($refresh || (empty($result = $this->getFromCache('schemas')))) {
+            /** @type string[] $result */
+            $result = $this->getSchema()->getResourceNames(DbResourceTypes::TYPE_SCHEMA);
+            $this->addToCache('schemas', $result, true);
+        }
+
+        return $result;
     }
 }

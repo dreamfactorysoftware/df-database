@@ -2,11 +2,7 @@
 
 namespace DreamFactory\Core\Database\Components;
 
-use DreamFactory\Core\Contracts\CacheInterface;
-use DreamFactory\Core\Contracts\DbExtrasInterface;
 use DreamFactory\Core\Contracts\SchemaInterface;
-use DreamFactory\Core\Database\Enums\DbFunctionUses;
-use DreamFactory\Core\Database\Enums\FunctionTypes;
 use DreamFactory\Core\Database\Schema\ColumnSchema;
 use DreamFactory\Core\Database\Schema\FunctionSchema;
 use DreamFactory\Core\Database\Schema\NamedResourceSchema;
@@ -22,7 +18,6 @@ use DreamFactory\Core\Exceptions\InternalServerErrorException;
 use DreamFactory\Core\Exceptions\NotImplementedException;
 use Illuminate\Database\Connection;
 use Illuminate\Database\ConnectionInterface;
-use ServiceManager;
 
 /**
  * Schema is the base class for retrieving metadata information.
@@ -51,13 +46,9 @@ class Schema implements SchemaInterface
     const ROUTINE_FETCH_MODE = \PDO::FETCH_NAMED;
 
     /**
-     * @var CacheInterface
+     * @var integer
      */
-    protected $cache = null;
-    /**
-     * @var DbExtrasInterface
-     */
-    protected $extraStore = null;
+    protected $serviceId = null;
     /**
      * @var boolean
      */
@@ -94,22 +85,6 @@ class Schema implements SchemaInterface
     }
 
     /**
-     * @return DbExtrasInterface|null
-     */
-    public function getExtraStore()
-    {
-        return $this->extraStore;
-    }
-
-    /**
-     * @param DbExtrasInterface|null $extraStore
-     */
-    public function setExtraStore($extraStore)
-    {
-        $this->extraStore = $extraStore;
-    }
-
-    /**
      * @return string|null
      */
     public function getUserSchema()
@@ -142,221 +117,22 @@ class Schema implements SchemaInterface
     }
 
     /**
-     * @param        $table_names
-     * @param string $select
-     *
-     * @return null
-     */
-    public function getSchemaExtrasForTables($table_names, $select = '*')
-    {
-        if ($this->extraStore) {
-            return $this->extraStore->getSchemaExtrasForTables($table_names, $select);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param        $table_name
-     * @param string $field_names
-     * @param string $select
-     *
-     * @return null
-     */
-    public function getSchemaExtrasForFields($table_name, $field_names = '*', $select = '*')
-    {
-        if ($this->extraStore) {
-            return $this->extraStore->getSchemaExtrasForFields($table_name, $field_names, $select);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param        $table_name
-     * @param string $related_names
-     * @param string $select
-     *
-     * @return null
-     */
-    public function getSchemaExtrasForRelated($table_name, $related_names = '*', $select = '*')
-    {
-        if ($this->extraStore) {
-            return $this->extraStore->getSchemaExtrasForRelated($table_name, $related_names, $select);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param        $table_name
-     * @param string $select
-     *
-     * @return null
-     */
-    public function getSchemaVirtualRelationships($table_name, $select = '*')
-    {
-        if ($this->extraStore) {
-            return $this->extraStore->getSchemaVirtualRelationships($table_name, $select);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param $extras
-     *
-     * @return null
-     */
-    public function setSchemaTableExtras($extras)
-    {
-        if ($this->extraStore) {
-            $this->extraStore->setSchemaTableExtras($extras);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param $extras
-     *
-     * @return null
-     */
-    public function setSchemaFieldExtras($extras)
-    {
-        if ($this->extraStore) {
-            $this->extraStore->setSchemaFieldExtras($extras);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param $extras
-     *
-     * @return null
-     */
-    public function setSchemaRelatedExtras($extras)
-    {
-        if ($this->extraStore) {
-            $this->extraStore->setSchemaRelatedExtras($extras);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param array $relationships
-     *
-     * @return null
-     */
-    public function setSchemaVirtualRelationships($relationships)
-    {
-        if ($this->extraStore) {
-            $this->extraStore->setSchemaVirtualRelationships($relationships);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param $table_names
-     *
-     * @return null
-     */
-    public function removeSchemaExtrasForTables($table_names)
-    {
-        if ($this->extraStore) {
-            $this->extraStore->removeSchemaExtrasForTables($table_names);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param $table_name
-     * @param $field_names
-     *
-     * @return null
-     */
-    public function removeSchemaExtrasForFields($table_name, $field_names)
-    {
-        if ($this->extraStore) {
-            $this->extraStore->removeSchemaExtrasForFields($table_name, $field_names);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param $table_name
-     * @param $related_names
-     *
-     * @return null
-     */
-    public function removeSchemaExtrasForRelated($table_name, $related_names)
-    {
-        if ($this->extraStore) {
-            $this->extraStore->removeSchemaExtrasForRelated($table_name, $related_names);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param string $table_name
-     * @param array  $relationships
-     *
-     * @return null
-     */
-    public function removeSchemaVirtualRelationships($table_name, $relationships)
-    {
-        if ($this->extraStore) {
-            $this->extraStore->removeSchemaVirtualRelationships($table_name, $relationships);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param $table_names
-     *
-     * @return null
-     */
-    public function tablesDropped($table_names)
-    {
-        if ($this->extraStore) {
-            $this->extraStore->tablesDropped($table_names);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param $table_name
-     * @param $field_names
-     *
-     * @return null
-     */
-    public function fieldsDropped($table_name, $field_names)
-    {
-        if ($this->extraStore) {
-            $this->extraStore->fieldsDropped($table_name, $field_names);
-        }
-
-        return null;
-    }
-
-    /**
      * @return null|integer
      */
     public function getServiceId()
     {
-        if ($this->extraStore) {
-            return $this->extraStore->getServiceId();
-        }
+        return $this->serviceId;
+    }
 
-        return null;
+    /**
+     * @param integer $id
+     * @return $this
+     */
+    public function setServiceId($id)
+    {
+        $this->serviceId = $id;
+
+        return $this;
     }
 
     /**
@@ -785,52 +561,6 @@ class Schema implements SchemaInterface
                 $table->addColumn($c);
             }
         }
-
-        // merge db extras
-        if (!empty($extras = $this->getSchemaExtrasForFields($table->name))) {
-            foreach ($extras as $extra) {
-                if (!empty($columnName = array_get($extra, 'field'))) {
-                    unset($extra['field']);
-                    if (!empty($type = array_get($extra, 'extra_type'))) {
-                        $extra['type'] = $type;
-                        // upgrade old entries
-                        if ('virtual' === $type) {
-                            $extra['is_virtual'] = true;
-                            if (!empty($functionInfo = array_get($extra, 'db_function'))) {
-                                $type = $extra['type'] = array_get($functionInfo, 'type', DbSimpleTypes::TYPE_STRING);
-                                if ($function = array_get($functionInfo, 'function')) {
-                                    $extra['db_function'] = [
-                                        [
-                                            'use'           => [DbFunctionUses::SELECT],
-                                            'function'      => $function,
-                                            'function_type' => FunctionTypes::DATABASE,
-                                        ]
-                                    ];
-                                }
-                                if ($aggregate = array_get($functionInfo, 'aggregate')) {
-                                    $extra['is_aggregate'] = $aggregate;
-                                }
-                            }
-                        }
-                    }
-                    unset($extra['extra_type']);
-
-                    if (!empty($alias = array_get($extra, 'alias'))) {
-                        $extra['quotedAlias'] = $this->quoteColumnName($alias);
-                    }
-
-                    if (null !== $c = $table->getColumn($columnName)) {
-                        $c->fill($extra);
-                    } elseif (!empty($type) && (array_get($extra, 'is_virtual') ||
-                            !$this->supportsResourceType(DbResourceTypes::TYPE_TABLE_FIELD))) {
-                        $extra['name'] = $columnName;
-                        $c = new ColumnSchema($extra);
-                        $c->quotedName = $this->quoteColumnName($c->name);
-                        $table->addColumn($c);
-                    }
-                }
-            }
-        }
     }
 
     /**
@@ -871,46 +601,6 @@ class Schema implements SchemaInterface
         $references = $this->findTableReferences();
 
         $this->buildTableRelations($table, $references);
-
-        // merge db extras
-        if (!empty($extras = $this->getSchemaVirtualRelationships($table->name))) {
-            foreach ($extras as $extra) {
-                $refService = null;
-                $junctionService = null;
-                $si = array_get($extra, 'ref_service_id');
-                if ($this->getServiceId() !== $si) {
-                    $refService = ServiceManager::getServiceNameById($si);
-                }
-                $si = array_get($extra, 'junction_service_id');
-                if (!empty($si) && ($this->getServiceId() !== $si)) {
-                    $junctionService = ServiceManager::getServiceNameById($si);
-                }
-                $extra['name'] = RelationSchema::buildName(
-                    array_get($extra, 'type'),
-                    array_get($extra, 'field'),
-                    $refService,
-                    array_get($extra, 'ref_table'),
-                    array_get($extra, 'ref_field'),
-                    $junctionService,
-                    array_get($extra, 'junction_table')
-                );
-                $relation = new RelationSchema($extra);
-                $relation->isVirtual = true;
-                $table->addRelation($relation);
-            }
-        }
-        if (!empty($extras = $this->getSchemaExtrasForRelated($table->name))) {
-            foreach ($extras as $extra) {
-                if (!empty($relatedName = array_get($extra, 'relationship'))) {
-                    if (null !== $relationship = $table->getRelation($relatedName)) {
-                        $relationship->fill($extra);
-                        if (isset($extra['always_fetch']) && $extra['always_fetch']) {
-                            $table->fetchRequiresRelations = true;
-                        }
-                    }
-                }
-            }
-        }
     }
 
     /**
@@ -1172,11 +862,6 @@ MYSQL;
     {
         return $this->findRoutineNames('FUNCTION', $schema);
 //        throw new NotImplementedException("Database or driver does not support fetching all stored function names.");
-    }
-
-    public function quoteIdentifier($name)
-    {
-        return $this->quoteTableName($name);
     }
 
     /**
