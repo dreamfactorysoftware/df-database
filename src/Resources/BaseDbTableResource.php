@@ -1945,7 +1945,8 @@ abstract class BaseDbTableResource extends BaseDbResource
                 return new TableSchema($result);
             }
         } else {
-            if (empty($result = $this->parent->getFromCache('table:' . strtolower($table)))) {
+            $cacheKey = 'table:' . strtolower($table);
+            if (empty($result = $this->parent->getFromCache($cacheKey))) {
                 $schema = $this->parent->getSchema();
                 if ($tableSchema = array_get($this->getTableNames(), strtolower($table))) {
                     /** @type TableSchema $result */
@@ -2039,7 +2040,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                                 }
                             }
                         }
-                        $this->parent->addToCache('table:' . strtolower($table), $tableSchema, true);
+                        $this->parent->addToCache($cacheKey, $tableSchema, true);
                     }
                 }
             }

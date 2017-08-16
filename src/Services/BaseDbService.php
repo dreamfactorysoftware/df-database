@@ -2,9 +2,6 @@
 
 namespace DreamFactory\Core\Database\Services;
 
-use DreamFactory\Core\Components\Cacheable;
-use DreamFactory\Core\Contracts\CachedInterface;
-use DreamFactory\Core\Contracts\CacheInterface;
 use DreamFactory\Core\Contracts\DbExtrasInterface;
 use DreamFactory\Core\Contracts\SchemaInterface;
 use DreamFactory\Core\Database\Components\DbSchemaExtras;
@@ -18,9 +15,9 @@ use DreamFactory\Core\Exceptions\NotImplementedException;
 use DreamFactory\Core\Services\BaseRestService;
 use Illuminate\Database\ConnectionInterface;
 
-abstract class BaseDbService extends BaseRestService implements CachedInterface, CacheInterface, DbExtrasInterface
+abstract class BaseDbService extends BaseRestService implements DbExtrasInterface
 {
-    use DbSchemaExtras, Cacheable;
+    use DbSchemaExtras;
 
     //*************************************************************************
     //	Members
@@ -75,7 +72,6 @@ abstract class BaseDbService extends BaseRestService implements CachedInterface,
         $this->allowUpsert = array_get_bool($this->config, 'allow_upsert');
         $this->cacheEnabled = array_get_bool($this->config, 'cache_enabled');
         $this->cacheTTL = intval(array_get($this->config, 'cache_ttl', \Config::get('df.default_cache_ttl')));
-        $this->cachePrefix = 'service_' . $this->id . ':';
     }
 
     /**

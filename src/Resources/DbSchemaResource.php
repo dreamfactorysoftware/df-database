@@ -694,7 +694,8 @@ class DbSchemaResource extends BaseDbResource
     protected function getTableSchema($name, $refresh = false)
     {
         $result = null;
-        if ($refresh || (empty($result = $this->parent->getFromCache('table:' . strtolower($name))))) {
+        $cacheKey = 'table:' . strtolower($name);
+        if ($refresh || (empty($result = $this->parent->getFromCache($cacheKey)))) {
             $schema = $this->parent->getSchema();
             if ($tableSchema = array_get($this->getTableNames(), strtolower($name))) {
                 /** @type TableSchema $result */
@@ -788,7 +789,7 @@ class DbSchemaResource extends BaseDbResource
                             }
                         }
                     }
-                    $this->parent->addToCache('table:' . strtolower($name), $tableSchema, true);
+                    $this->parent->addToCache($cacheKey, $tableSchema, true);
                 }
             }
         }
