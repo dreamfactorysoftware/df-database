@@ -167,7 +167,7 @@ abstract class BaseDbTableResource extends BaseDbResource
      */
     protected function getTableNames($schema = null, $refresh = false)
     {
-        if ($refresh || (empty($tables = $this->parent->getFromCache('tables')))) {
+        if ($refresh || (is_null($tables = $this->parent->getFromCache('tables')))) {
             $tables = [];
             foreach ($this->parent->getSchemas() as $schemaName) {
                 $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE, $schemaName);
@@ -1946,7 +1946,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             }
         } else {
             $cacheKey = 'table:' . strtolower($table);
-            if (empty($result = $this->parent->getFromCache($cacheKey))) {
+            if (is_null($result = $this->parent->getFromCache($cacheKey))) {
                 $schema = $this->parent->getSchema();
                 if ($tableSchema = array_get($this->getTableNames(), strtolower($table))) {
                     /** @type TableSchema $result */

@@ -167,7 +167,7 @@ class DbSchemaResource extends BaseDbResource
      */
     protected function getTableNames($schema = null, $refresh = false)
     {
-        if ($refresh || (empty($tables = $this->parent->getFromCache('tables')))) {
+        if ($refresh || (is_null($tables = $this->parent->getFromCache('tables')))) {
             $tables = [];
             foreach ($this->parent->getSchemas() as $schemaName) {
                 $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE, $schemaName);
@@ -695,7 +695,7 @@ class DbSchemaResource extends BaseDbResource
     {
         $result = null;
         $cacheKey = 'table:' . strtolower($name);
-        if ($refresh || (empty($result = $this->parent->getFromCache($cacheKey)))) {
+        if ($refresh || (is_null($result = $this->parent->getFromCache($cacheKey)))) {
             $schema = $this->parent->getSchema();
             if ($tableSchema = array_get($this->getTableNames(), strtolower($name))) {
                 /** @type TableSchema $result */

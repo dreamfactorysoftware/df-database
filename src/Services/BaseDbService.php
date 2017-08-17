@@ -162,7 +162,7 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
 
     public function getSchemas($refresh = false)
     {
-        if ($refresh || (empty($result = $this->getFromCache('schemas')))) {
+        if ($refresh || (is_null($result = $this->getFromCache('schemas')))) {
             /** @type string[] $result */
             $result = $this->getSchema()->getResourceNames(DbResourceTypes::TYPE_SCHEMA);
             $this->addToCache('schemas', $result, true);
