@@ -2,13 +2,10 @@
 
 namespace DreamFactory\Core\Database\Components;
 
-use DreamFactory\Core\Contracts\CacheInterface;
-use DreamFactory\Core\Contracts\DbExtrasInterface;
 use DreamFactory\Core\Contracts\SchemaInterface;
-use DreamFactory\Core\Database\Enums\DbFunctionUses;
-use DreamFactory\Core\Database\Enums\FunctionTypes;
 use DreamFactory\Core\Database\Schema\ColumnSchema;
 use DreamFactory\Core\Database\Schema\FunctionSchema;
+use DreamFactory\Core\Database\Schema\NamedResourceSchema;
 use DreamFactory\Core\Database\Schema\ParameterSchema;
 use DreamFactory\Core\Database\Schema\ProcedureSchema;
 use DreamFactory\Core\Database\Schema\RelationSchema;
@@ -18,9 +15,7 @@ use DreamFactory\Core\Enums\DbResourceTypes;
 use DreamFactory\Core\Enums\DbSimpleTypes;
 use DreamFactory\Core\Exceptions\BadRequestException;
 use DreamFactory\Core\Exceptions\InternalServerErrorException;
-use DreamFactory\Core\Exceptions\NotFoundException;
 use DreamFactory\Core\Exceptions\NotImplementedException;
-use DreamFactory\Core\Models\Service;
 use Illuminate\Database\Connection;
 use Illuminate\Database\ConnectionInterface;
 
@@ -51,13 +46,9 @@ class Schema implements SchemaInterface
     const ROUTINE_FETCH_MODE = \PDO::FETCH_NAMED;
 
     /**
-     * @var CacheInterface
+     * @var integer
      */
-    protected $cache = null;
-    /**
-     * @var DbExtrasInterface
-     */
-    protected $extraStore = null;
+    protected $serviceId = null;
     /**
      * @var boolean
      */
@@ -71,63 +62,9 @@ class Schema implements SchemaInterface
      */
     protected $userSchema;
     /**
-     * @var array
-     */
-    protected $schemas;
-    /**
-     * @var array
-     */
-    protected $tables;
-    /**
-     * @var array
-     */
-    protected $tableReferences;
-    /**
-     * @var array
-     */
-    protected $views;
-    /**
-     * @var array
-     */
-    protected $viewReferences;
-    /**
-     * @var array
-     */
-    protected $procedures;
-    /**
-     * @var array
-     */
-    protected $functions;
-    /**
      * @var Connection
      */
     protected $connection;
-    /**
-     * @var array
-     */
-    protected $fieldExtras = [
-        'alias',
-        'label',
-        'description',
-        'picklist',
-        'validation',
-        'client_info',
-        'db_function',
-        'is_virtual',
-        'is_aggregate',
-    ];
-
-    /**
-     * @var array
-     */
-    protected $relatedExtras = [
-        'alias',
-        'label',
-        'description',
-        'always_fetch',
-        'flatten',
-        'flatten_drop_prefix',
-    ];
 
     /**
      * Constructor.
@@ -145,47 +82,6 @@ class Schema implements SchemaInterface
     public function getDbConnection()
     {
         return $this->connection;
-    }
-
-    /**
-     * @return CacheInterface|null
-     */
-    public function getCache()
-    {
-        return $this->cache;
-    }
-
-    /**
-     * @param CacheInterface|null $cache
-     */
-    public function setCache($cache)
-    {
-        $this->cache = $cache;
-    }
-
-    /**
-     */
-    public function flushCache()
-    {
-        if ($this->cache) {
-            $this->cache->flush();
-        }
-    }
-
-    /**
-     * @return DbExtrasInterface|null
-     */
-    public function getExtraStore()
-    {
-        return $this->extraStore;
-    }
-
-    /**
-     * @param DbExtrasInterface|null $extraStore
-     */
-    public function setExtraStore($extraStore)
-    {
-        $this->extraStore = $extraStore;
     }
 
     /**
@@ -221,268 +117,22 @@ class Schema implements SchemaInterface
     }
 
     /**
-     * @param      $key
-     * @param null $default
-     *
-     * @return null
-     */
-    public function getFromCache($key, $default = null)
-    {
-        if ($this->cache) {
-            return $this->cache->getFromCache($key, $default);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param      $key
-     * @param      $value
-     * @param bool $forever
-     */
-    public function addToCache($key, $value, $forever = false)
-    {
-        if ($this->cache) {
-            $this->cache->addToCache($key, $value, $forever);
-        }
-    }
-
-    /**
-     * @param $key
-     */
-    public function removeFromCache($key)
-    {
-        if ($this->cache) {
-            $this->cache->removeFromCache($key);
-        }
-    }
-
-    /**
-     *
-     */
-    public function flush()
-    {
-        if ($this->cache) {
-            $this->cache->flush();
-        }
-    }
-
-    /**
-     * @param        $table_names
-     * @param string $select
-     *
-     * @return null
-     */
-    public function getSchemaExtrasForTables($table_names, $select = '*')
-    {
-        if ($this->extraStore) {
-            return $this->extraStore->getSchemaExtrasForTables($table_names, $select);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param        $table_name
-     * @param string $field_names
-     * @param string $select
-     *
-     * @return null
-     */
-    public function getSchemaExtrasForFields($table_name, $field_names = '*', $select = '*')
-    {
-        if ($this->extraStore) {
-            return $this->extraStore->getSchemaExtrasForFields($table_name, $field_names, $select);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param        $table_name
-     * @param string $related_names
-     * @param string $select
-     *
-     * @return null
-     */
-    public function getSchemaExtrasForRelated($table_name, $related_names = '*', $select = '*')
-    {
-        if ($this->extraStore) {
-            return $this->extraStore->getSchemaExtrasForRelated($table_name, $related_names, $select);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param        $table_name
-     * @param string $select
-     *
-     * @return null
-     */
-    public function getSchemaVirtualRelationships($table_name, $select = '*')
-    {
-        if ($this->extraStore) {
-            return $this->extraStore->getSchemaVirtualRelationships($table_name, $select);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param $extras
-     *
-     * @return null
-     */
-    public function setSchemaTableExtras($extras)
-    {
-        if ($this->extraStore) {
-            $this->extraStore->setSchemaTableExtras($extras);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param $extras
-     *
-     * @return null
-     */
-    public function setSchemaFieldExtras($extras)
-    {
-        if ($this->extraStore) {
-            $this->extraStore->setSchemaFieldExtras($extras);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param $extras
-     *
-     * @return null
-     */
-    public function setSchemaRelatedExtras($extras)
-    {
-        if ($this->extraStore) {
-            $this->extraStore->setSchemaRelatedExtras($extras);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param array $relationships
-     *
-     * @return null
-     */
-    public function setSchemaVirtualRelationships($relationships)
-    {
-        if ($this->extraStore) {
-            $this->extraStore->setSchemaVirtualRelationships($relationships);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param $table_names
-     *
-     * @return null
-     */
-    public function removeSchemaExtrasForTables($table_names)
-    {
-        if ($this->extraStore) {
-            $this->extraStore->removeSchemaExtrasForTables($table_names);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param $table_name
-     * @param $field_names
-     *
-     * @return null
-     */
-    public function removeSchemaExtrasForFields($table_name, $field_names)
-    {
-        if ($this->extraStore) {
-            $this->extraStore->removeSchemaExtrasForFields($table_name, $field_names);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param $table_name
-     * @param $related_names
-     *
-     * @return null
-     */
-    public function removeSchemaExtrasForRelated($table_name, $related_names)
-    {
-        if ($this->extraStore) {
-            $this->extraStore->removeSchemaExtrasForRelated($table_name, $related_names);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param string $table_name
-     * @param array  $relationships
-     *
-     * @return null
-     */
-    public function removeSchemaVirtualRelationships($table_name, $relationships)
-    {
-        if ($this->extraStore) {
-            $this->extraStore->removeSchemaVirtualRelationships($table_name, $relationships);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param $table_names
-     *
-     * @return null
-     */
-    public function tablesDropped($table_names)
-    {
-        if ($this->extraStore) {
-            $this->extraStore->tablesDropped($table_names);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param $table_name
-     * @param $field_names
-     *
-     * @return null
-     */
-    public function fieldsDropped($table_name, $field_names)
-    {
-        if ($this->extraStore) {
-            $this->extraStore->fieldsDropped($table_name, $field_names);
-        }
-
-        return null;
-    }
-
-    /**
      * @return null|integer
      */
     public function getServiceId()
     {
-        if ($this->extraStore) {
-            return $this->extraStore->getServiceId();
-        }
+        return $this->serviceId;
+    }
 
-        return null;
+    /**
+     * @param integer $id
+     * @return $this
+     */
+    public function setServiceId($id)
+    {
+        $this->serviceId = $id;
+
+        return $this;
     }
 
     /**
@@ -575,22 +225,11 @@ class Schema implements SchemaInterface
     /**
      * Returns the default schema name for the connection.
      *
-     * @param boolean $refresh if we need to refresh schema cache.
-     *
      * @return string default schema.
      */
-    public function getDefaultSchema($refresh = false)
+    public function getDefaultSchema()
     {
-        if (!$refresh) {
-            if (!empty($this->defaultSchema)) {
-                return $this->defaultSchema;
-            } elseif (null !== $this->defaultSchema = $this->getFromCache('default_schema')) {
-                return $this->defaultSchema;
-            }
-        }
-
         $this->defaultSchema = $this->findDefaultSchema();
-        $this->addToCache('default_schema', $this->defaultSchema, true);
 
         return $this->defaultSchema;
     }
@@ -611,11 +250,9 @@ class Schema implements SchemaInterface
     /**
      * Returns all schema names on the connection.
      *
-     * @param boolean $refresh if we need to refresh schema cache.
-     *
      * @return array all schema names on the connection.
      */
-    public function getSchemas($refresh = false)
+    public function getSchemas()
     {
         if (!empty($this->userSchema) && (0 !== strcasecmp($this->userSchema, 'all'))) {
             if (0 === strcasecmp($this->userSchema, 'default')) {
@@ -624,18 +261,11 @@ class Schema implements SchemaInterface
 
             return [$this->userSchema];
         }
-        if (!$refresh) {
-            if (!is_null($this->schemas) || (null !== $this->schemas = $this->getFromCache('schemas'))) {
-                return $this->schemas;
-            }
-        }
 
-        $this->schemas = $this->findSchemaNames();
-        natcasesort($this->schemas);
+        $schemas = $this->findSchemaNames();
+        natcasesort($schemas);
 
-        $this->addToCache('schemas', $this->schemas, true);
-
-        return $this->schemas;
+        return $schemas;
     }
 
     /**
@@ -699,33 +329,24 @@ class Schema implements SchemaInterface
     /**
      * Return an array of names of a particular type of resource.
      *
-     * @param string $type    Resource type
-     * @param string $schema  Schema name if any specific requested
-     * @param bool   $refresh Clear cache and retrieve anew?
+     * @param string $type   Resource type
+     * @param string $schema Schema name if any specific requested
      *
      * @return array
      */
-    public function getResourceNames($type, $schema = '', $refresh = false)
+    public function getResourceNames($type, $schema = '')
     {
         switch ($type) {
             case DbResourceTypes::TYPE_SCHEMA:
-                return $this->getSchemas($refresh);
+                return $this->getSchemas();
             case DbResourceTypes::TYPE_TABLE:
-                return $this->getTableNames($schema, $refresh);
-            case DbResourceTypes::TYPE_TABLE_FIELD:
-                $table = $this->getTable($schema, $refresh);
-
-                return $table->getColumnNames();
-            case DbResourceTypes::TYPE_TABLE_RELATIONSHIP:
-                $table = $this->getTable($schema, $refresh);
-
-                return $table->getRelationNames();
+                return $this->getTableNames($schema);
             case DbResourceTypes::TYPE_VIEW:
-                return $this->getViewNames($schema, $refresh);
+                return $this->getViewNames($schema);
             case DbResourceTypes::TYPE_PROCEDURE:
-                return $this->getProcedureNames($schema, $refresh);
+                return $this->getProcedureNames($schema);
             case DbResourceTypes::TYPE_FUNCTION:
-                return $this->getFunctionNames($schema, $refresh);
+                return $this->getFunctionNames($schema);
             default:
                 return [];
         }
@@ -734,39 +355,32 @@ class Schema implements SchemaInterface
     /**
      * Return the metadata about a particular schema resource.
      *
-     * @param string $type    Resource type
-     * @param string $name    Resource name
-     * @param bool   $refresh Clear cache and retrieve anew?
+     * @param string                     $type Resource type
+     * @param string|NamedResourceSchema $name Resource name
      *
      * @return null|mixed
      */
-    public function getResource($type, $name, $refresh = false)
+    public function getResource($type, &$name)
     {
         switch ($type) {
             case DbResourceTypes::TYPE_SCHEMA:
                 return $name;
             case DbResourceTypes::TYPE_TABLE:
-                return $this->getTable($name, $refresh);
-            case DbResourceTypes::TYPE_TABLE_FIELD:
-                if (!is_array($name) || (2 > count($name))) {
-                    throw new \InvalidArgumentException('Invalid resource name for type.');
-                }
-                $table = $this->getTable($name[0], $refresh);
+                $this->loadTable($name);
 
-                return $table->getColumn($name[1]);
-            case DbResourceTypes::TYPE_TABLE_RELATIONSHIP:
-                if (!is_array($name) || (2 > count($name))) {
-                    throw new \InvalidArgumentException('Invalid resource name for type.');
-                }
-                $table = $this->getTable($name[0], $refresh);
-
-                return $table->getRelation($name[1]);
-            case DbResourceTypes::TYPE_PROCEDURE:
-                return $this->getProcedure($name, $refresh);
-            case DbResourceTypes::TYPE_FUNCTION:
-                return $this->getFunction($name, $refresh);
+                return $name;
             case DbResourceTypes::TYPE_VIEW:
-                return $this->getView($name, $refresh);
+                $this->loadTable($name);
+
+                return $name;
+            case DbResourceTypes::TYPE_PROCEDURE:
+                $this->loadProcedure($name);
+
+                return $name;
+            case DbResourceTypes::TYPE_FUNCTION:
+                $this->loadFunction($name);
+
+                return $name;
             default:
                 return null;
         }
@@ -784,37 +398,19 @@ class Schema implements SchemaInterface
             case DbResourceTypes::TYPE_SCHEMA:
                 break;
             case DbResourceTypes::TYPE_TABLE:
-                if ($resource = $this->getTable($name)) {
-                    $this->dropTable($resource->quotedName);
-                    $this->tablesDropped($name);
-                }
+                $this->dropTable($name);
                 break;
             case DbResourceTypes::TYPE_TABLE_FIELD:
                 if (!is_array($name) || (2 > count($name))) {
                     throw new \InvalidArgumentException('Invalid resource name for type.');
                 }
-                $table = $this->getTable($name[0]);
-                if ($resource = $table->getColumn($name[1])) {
-                    if ($this->supportsResourceType(DbResourceTypes::TYPE_TABLE_FIELD) && !$resource->isVirtual) {
-                        $this->dropColumns($table->quotedName, $resource->quotedName);
-                    }
-                    $this->fieldsDropped($name[0], $name[1]);
-                }
-
+                $this->dropColumns($name[0], $name[1]);
                 break;
             case DbResourceTypes::TYPE_TABLE_RELATIONSHIP:
                 if (!is_array($name) || (2 > count($name))) {
                     throw new \InvalidArgumentException('Invalid resource name for type.');
                 }
-                $table = $this->getTable($name[0]);
-                if ($resource = $table->getRelation($name[1])) {
-                    if ($resource->isVirtual) {
-                        $this->removeSchemaVirtualRelationships($name[0], [$resource->toArray()]);
-                    } else {
-                        $this->dropRelationship($table->quotedName, $resource);
-                    }
-                    $this->removeSchemaExtrasForRelated($name[0], $name[1]);
-                }
+                $this->dropRelationship($name[0], $name[1]);
                 break;
             case DbResourceTypes::TYPE_PROCEDURE:
                 break;
@@ -823,9 +419,6 @@ class Schema implements SchemaInterface
             default:
                 return false;
         }
-
-        //  Any changes here should refresh cached schema
-        $this->refresh();
 
         return true;
     }
@@ -927,94 +520,6 @@ class Schema implements SchemaInterface
     }
 
     /**
-     * Obtains the metadata for the named table.
-     *
-     * @param string  $name    table name
-     * @param boolean $refresh if we need to refresh schema cache for a table.
-     *
-     * @return TableSchema table metadata. Null if the named table does not exist.
-     */
-    public function getTable($name, $refresh = false)
-    {
-        $ndx = strtolower($name);
-        if (!$refresh) {
-            if (isset($this->tables[$ndx]) && $this->tables[$ndx]->discoveryCompleted) {
-                return $this->tables[$ndx];
-            } else {
-                if (is_null($this->tables)) {
-                    $this->getCachedTableNames();
-                }
-                if (empty($this->tables[$ndx])) {
-                    return null;
-                }
-                if (null !== $table = $this->getFromCache('table:' . $ndx)) {
-                    $this->tables[$ndx] = $table;
-
-                    return $this->tables[$ndx];
-                }
-            }
-        }
-
-        // check if know anything about this table already
-        if (is_null($this->tables)) {
-            $this->getCachedTableNames();
-        }
-        if (empty($table = array_get($this->tables, $ndx))) {
-            return null;
-        }
-
-        $this->loadTable($table);
-        $this->tables[$ndx] = $table;
-        $this->addToCache('table:' . $ndx, $table, true);
-
-        return $table;
-    }
-
-    /**
-     * Obtains the metadata for the named view.
-     *
-     * @param string  $name    view name
-     * @param boolean $refresh if we need to refresh schema cache for a view.
-     *
-     * @return TableSchema table metadata. Null if the named view does not exist.
-     */
-    public function getView($name, $refresh = false)
-    {
-        $ndx = strtolower($name);
-        if (!$refresh) {
-            if (isset($this->views[$ndx]) && $this->views[$ndx]->discoveryCompleted) {
-                return $this->views[$ndx];
-            } else {
-                if (is_null($this->views)) {
-                    $this->getCachedViewNames();
-                }
-                if (empty($this->views[$ndx])) {
-                    return null;
-                }
-                if (null !== $view = $this->getFromCache('view:' . $ndx)) {
-                    $this->views[$ndx] = $view;
-
-                    return $this->views[$ndx];
-                }
-            }
-        }
-
-        // check if know anything about this view already
-        if (is_null($this->views)) {
-            $this->getCachedViewNames();
-        }
-        if (empty($view = array_get($this->views, $ndx))) {
-            return null;
-        }
-
-        $this->loadTable($view);
-        $this->views[$ndx] = $view;
-        $this->addToCache('view:' . $ndx, $view, true);
-
-        return $view;
-    }
-
-    /**
      * Loads the metadata for the specified table.
      *
      * @param TableSchema $table Any already known info about the table
@@ -1056,52 +561,6 @@ class Schema implements SchemaInterface
                 $table->addColumn($c);
             }
         }
-
-        // merge db extras
-        if (!empty($extras = $this->getSchemaExtrasForFields($table->name))) {
-            foreach ($extras as $extra) {
-                if (!empty($columnName = array_get($extra, 'field'))) {
-                    unset($extra['field']);
-                    if (!empty($type = array_get($extra, 'extra_type'))) {
-                        $extra['type'] = $type;
-                        // upgrade old entries
-                        if ('virtual' === $type) {
-                            $extra['is_virtual'] = true;
-                            if (!empty($functionInfo = array_get($extra, 'db_function'))) {
-                                $type = $extra['type'] = array_get($functionInfo, 'type', DbSimpleTypes::TYPE_STRING);
-                                if ($function = array_get($functionInfo, 'function')) {
-                                    $extra['db_function'] = [
-                                        [
-                                            'use'           => [DbFunctionUses::SELECT],
-                                            'function'      => $function,
-                                            'function_type' => FunctionTypes::DATABASE,
-                                        ]
-                                    ];
-                                }
-                                if ($aggregate = array_get($functionInfo, 'aggregate')) {
-                                    $extra['is_aggregate'] = $aggregate;
-                                }
-                            }
-                        }
-                    }
-                    unset($extra['extra_type']);
-
-                    if (!empty($alias = array_get($extra, 'alias'))) {
-                        $extra['quotedAlias'] = $this->quoteColumnName($alias);
-                    }
-
-                    if (null !== $c = $table->getColumn($columnName)) {
-                        $c->fill($extra);
-                    } elseif (!empty($type) && (array_get($extra, 'is_virtual') ||
-                            !$this->supportsResourceType(DbResourceTypes::TYPE_TABLE_FIELD))) {
-                        $extra['name'] = $columnName;
-                        $c = new ColumnSchema($extra);
-                        $c->quotedName = $this->quoteColumnName($c->name);
-                        $table->addColumn($c);
-                    }
-                }
-            }
-        }
     }
 
     /**
@@ -1139,71 +598,9 @@ class Schema implements SchemaInterface
      */
     protected function loadRelated(TableSchema $table)
     {
-        $references = $this->getTableReferences();
+        $references = $this->findTableReferences();
 
         $this->buildTableRelations($table, $references);
-
-        // merge db extras
-        if (!empty($extras = $this->getSchemaVirtualRelationships($table->name))) {
-            foreach ($extras as $extra) {
-                $refService = null;
-                $junctionService = null;
-                $si = array_get($extra, 'ref_service_id');
-                if ($this->getServiceId() !== $si) {
-                    $refService = Service::getCachedNameById($si);
-                }
-                $si = array_get($extra, 'junction_service_id');
-                if (!empty($si) && ($this->getServiceId() !== $si)) {
-                    $junctionService = Service::getCachedNameById($si);
-                }
-                $extra['name'] = RelationSchema::buildName(
-                    array_get($extra, 'type'),
-                    array_get($extra, 'field'),
-                    $refService,
-                    array_get($extra, 'ref_table'),
-                    array_get($extra, 'ref_field'),
-                    $junctionService,
-                    array_get($extra, 'junction_table')
-                );
-                $relation = new RelationSchema($extra);
-                $relation->isVirtual = true;
-                $table->addRelation($relation);
-            }
-        }
-        if (!empty($extras = $this->getSchemaExtrasForRelated($table->name))) {
-            foreach ($extras as $extra) {
-                if (!empty($relatedName = array_get($extra, 'relationship'))) {
-                    if (null !== $relationship = $table->getRelation($relatedName)) {
-                        $relationship->fill($extra);
-                        if (isset($extra['always_fetch']) && $extra['always_fetch']) {
-                            $table->fetchRequiresRelations = true;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * Returns the metadata for all tables in the database.
-     *
-     * @param string $schema the schema of the tables. Defaults to empty string, meaning the current or default schema.
-     * @param bool   $refresh
-     *
-     * @return array the metadata for all tables in the database.
-     * Each array element is an instance of {@link TableSchema} (or its child class).
-     * The array keys are table names.
-     */
-    public function getTables($schema = '', $refresh = false)
-    {
-        $tables = [];
-        foreach ($this->getTableNames($schema, $refresh) as $tableNameSchema) {
-            if (($table = $this->getTable($tableNameSchema->name, $refresh)) !== null) {
-                $tables[$tableNameSchema->name] = $table;
-            }
-        }
-
-        return $tables;
     }
 
     /**
@@ -1211,58 +608,15 @@ class Schema implements SchemaInterface
      *
      * @param string $schema the schema of the tables. Defaults to empty string, meaning the current or default schema.
      *                       If not empty, the returned table names will be prefixed with the schema name.
-     * @param bool   $refresh
      *
      * @return TableSchema[] all table names in the database.
      */
-    public function getTableNames($schema = '', $refresh = false)
+    public function getTableNames($schema = '')
     {
-        // go ahead and reset all schemas if needed
-        $this->getCachedTableNames($refresh);
-        if (empty($schema)) {
-            // return all
-            return $this->tables;
-        } else {
-            $names = [];
-            foreach ($this->tables as $key => $value) {
-                if ($value->schemaName === $schema) {
-                    $names[$key] = $value;
-                }
-            }
+        /** @type TableSchema[] $tables */
+        $tables = $this->findTableNames($schema);
 
-            return $names;
-        }
-    }
-
-    /**
-     * @param bool $refresh
-     *
-     * @throws \Exception
-     */
-    protected function getCachedTableNames($refresh = false)
-    {
-        if ($refresh ||
-            (is_null($this->tables) && (null === $this->tables = $this->getFromCache('tables')))
-        ) {
-            $tables = [];
-            foreach ($this->getSchemas($refresh) as $temp) {
-                /** @type TableSchema[] $tables */
-                $tables = array_merge($tables, $this->findTableNames($temp));
-            }
-            ksort($tables, SORT_NATURAL); // sort alphabetically
-            // merge db extras
-            if (!empty($extrasEntries = $this->getSchemaExtrasForTables(array_keys($tables)))) {
-                foreach ($extrasEntries as $extras) {
-                    if (!empty($extraName = strtolower(strval($extras['table'])))) {
-                        if (array_key_exists($extraName, $tables)) {
-                            $tables[$extraName]->fill(array_except($extras, 'id'));
-                        }
-                    }
-                }
-            }
-            $this->tables = $tables;
-            $this->addToCache('tables', $this->tables, true);
-        }
+        return $tables;
     }
 
     /**
@@ -1284,24 +638,6 @@ class Schema implements SchemaInterface
     }
 
     /**
-     *
-     * @param bool $refresh
-     * @return array|null
-     */
-    protected function getTableReferences($refresh = false)
-    {
-        if ($refresh ||
-            (is_null($this->tableReferences) &&
-                (is_null($this->tableReferences = $this->getFromCache('table_references'))))
-        ) {
-            $this->tableReferences = $this->findTableReferences();
-            $this->addToCache('table_references', $this->tableReferences, true);
-        }
-
-        return $this->tableReferences;
-    }
-
-    /**
      * Returns all table references in the database.
      * This method should be overridden by child classes in order to support this feature
      * because the default implementation simply throws an exception.
@@ -1320,58 +656,15 @@ class Schema implements SchemaInterface
      *
      * @param string $schema the schema of the views. Defaults to empty string, meaning the current or default schema.
      *                       If not empty, the returned view names will be prefixed with the schema name.
-     * @param bool   $refresh
      *
      * @return TableSchema[] all view names in the database.
      */
-    public function getViewNames($schema = '', $refresh = false)
+    public function getViewNames($schema = '')
     {
-        // go ahead and reset all schemas if needed
-        $this->getCachedViewNames($refresh);
-        if (empty($schema)) {
-            // return all
-            return $this->views;
-        } else {
-            $names = [];
-            foreach ($this->views as $key => $value) {
-                if ($value->schemaName === $schema) {
-                    $names[$key] = $value;
-                }
-            }
+        /** @type TableSchema[] $views */
+        $views = $this->findViewNames($schema);
 
-            return $names;
-        }
-    }
-
-    /**
-     * @param bool $refresh
-     *
-     * @throws \Exception
-     */
-    protected function getCachedViewNames($refresh = false)
-    {
-        if ($refresh ||
-            (is_null($this->views) && (null === $this->views = $this->getFromCache('views')))
-        ) {
-            $views = [];
-            foreach ($this->getSchemas($refresh) as $temp) {
-                /** @type TableSchema[] $views */
-                $views = array_merge($views, $this->findViewNames($temp));
-            }
-            ksort($views, SORT_NATURAL); // sort alphabetically
-            // merge db extras
-            if (!empty($extrasEntries = $this->getSchemaExtrasForTables(array_keys($views)))) {
-                foreach ($extrasEntries as $extras) {
-                    if (!empty($extraName = strtolower(strval($extras['table'])))) {
-                        if (array_key_exists($extraName, $views)) {
-                            $views[$extraName]->fill($extras);
-                        }
-                    }
-                }
-            }
-            $this->views = $views;
-            $this->addToCache('views', $this->views, true);
-        }
+        return $views;
     }
 
     /**
@@ -1393,50 +686,6 @@ class Schema implements SchemaInterface
     }
 
     /**
-     * Obtains the metadata for the named stored procedure.
-     *
-     * @param string  $name    stored procedure name
-     * @param boolean $refresh if we need to refresh schema cache for a stored procedure.
-     *
-     * @return ProcedureSchema stored procedure metadata. Null if the named stored procedure does not exist.
-     */
-    public function getProcedure($name, $refresh = false)
-    {
-        $ndx = strtolower($name);
-        if (!$refresh) {
-            if (isset($this->procedures[$ndx]) && $this->procedures[$ndx]->discoveryCompleted) {
-                return $this->procedures[$ndx];
-            } else {
-                if (is_null($this->procedures)) {
-                    $this->getCachedProcedureNames();
-                }
-                if (empty($this->procedures[$ndx])) {
-                    return null;
-                }
-                if (null !== $procedure = $this->getFromCache('procedure:' . $ndx)) {
-                    $this->procedures[$ndx] = $procedure;
-
-                    return $this->procedures[$ndx];
-                }
-            }
-        }
-
-        // check if know anything about this procedure already
-        if (is_null($this->procedures)) {
-            $this->getCachedProcedureNames();
-        }
-        if (empty($procedure = array_get($this->procedures, $ndx))) {
-            return null;
-        }
-
-        $this->loadProcedure($procedure);
-        $this->procedures[$ndx] = $procedure;
-        $this->addToCache('procedure:' . $ndx, $procedure, true);
-
-        return $procedure;
-    }
-
-    /**
      * Loads the metadata for the specified stored procedure.
      *
      * @param ProcedureSchema $procedure procedure
@@ -1449,75 +698,18 @@ class Schema implements SchemaInterface
     }
 
     /**
-     * Returns the metadata for all stored procedures in the database.
-     *
-     * @param string $schema the schema of the procedures. Defaults to empty string, meaning the current or default
-     *                       schema.
-     * @param bool   $refresh
-     *
-     * @return array the metadata for all stored procedures in the database.
-     * Each array element is an instance of {@link ProcedureSchema} (or its child class).
-     * The array keys are procedure names.
-     */
-    public function getProcedures($schema = '', $refresh = false)
-    {
-        $procedures = [];
-        /** @type ProcedureSchema $procNameSchema */
-        foreach ($this->getProcedureNames($schema) as $procNameSchema) {
-            if (($procedure = $this->getProcedure($procNameSchema->name, $refresh)) !== null) {
-                $procedures[$procNameSchema->name] = $procedure;
-            }
-        }
-
-        return $procedures;
-    }
-
-    /**
      * Returns all stored procedure names in the database.
      *
      * @param string $schema the schema of the procedures. Defaults to empty string, meaning the current or default
      *                       schema. If not empty, the returned procedure names will be prefixed with the schema name.
-     * @param bool   $refresh
      *
      * @return array all procedure names in the database.
      */
-    public function getProcedureNames($schema = '', $refresh = false)
+    public function getProcedureNames($schema = '')
     {
-        // go ahead and reset all schemas
-        $this->getCachedProcedureNames($refresh);
-        if (empty($schema)) {
-            // return all
-            return $this->procedures;
-        } else {
-            $names = [];
-            foreach ($this->procedures as $key => $value) {
-                if ($value->schemaName === $schema) {
-                    $names[$key] = $value;
-                }
-            }
+        $names = $this->findProcedureNames($schema);
 
-            return $names;
-        }
-    }
-
-    /**
-     * @param bool $refresh
-     *
-     * @throws \Exception
-     */
-    protected function getCachedProcedureNames($refresh = false)
-    {
-        if ($refresh ||
-            (is_null($this->procedures) && (null === $this->procedures = $this->getFromCache('procedures')))
-        ) {
-            $names = [];
-            foreach ($this->getSchemas($refresh) as $temp) {
-                $names = array_merge($names, $this->findProcedureNames($temp));
-            }
-            ksort($names, SORT_NATURAL); // sort alphabetically
-            $this->procedures = $names;
-            $this->addToCache('procedures', $this->procedures, true);
-        }
+        return $names;
     }
 
     /**
@@ -1587,50 +779,6 @@ MYSQL;
     }
 
     /**
-     * Obtains the metadata for the named stored function.
-     *
-     * @param string  $name    stored function name
-     * @param boolean $refresh if we need to refresh schema cache for a stored function.
-     *
-     * @return FunctionSchema stored function metadata. Null if the named stored function does not exist.
-     */
-    public function getFunction($name, $refresh = false)
-    {
-        $ndx = strtolower($name);
-        if (!$refresh) {
-            if (isset($this->functions[$ndx]) && $this->functions[$ndx]->discoveryCompleted) {
-                return $this->functions[$ndx];
-            } else {
-                if (is_null($this->functions)) {
-                    $this->getCachedFunctionNames();
-                }
-                if (empty($this->functions[$ndx])) {
-                    return null;
-                }
-                if (null !== $function = $this->getFromCache('function:' . $ndx)) {
-                    $this->functions[$ndx] = $function;
-
-                    return $this->functions[$ndx];
-                }
-            }
-        }
-
-        // check if know anything about this function already
-        if (is_null($this->functions)) {
-            $this->getCachedFunctionNames();
-        }
-        if (empty($function = array_get($this->functions, $ndx))) {
-            return null;
-        }
-
-        $this->loadFunction($function);
-        $this->functions[$ndx] = $function;
-        $this->addToCache('function:' . $ndx, $function, true);
-
-        return $function;
-    }
-
-    /**
      * Loads the metadata for the specified stored function.
      *
      * @param FunctionSchema $function
@@ -1684,75 +832,18 @@ MYSQL;
     }
 
     /**
-     * Returns the metadata for all stored functions in the database.
-     *
-     * @param string $schema the schema of the functions. Defaults to empty string, meaning the current or default
-     *                       schema.
-     *
-     * @return array the metadata for all stored functions in the database.
-     * Each array element is an instance of {@link FunctionSchema} (or its child class).
-     * The array keys are functions names.
-     */
-    public function getFunctions($schema = '')
-    {
-        $functions = [];
-        /** @type FunctionSchema $funcNameSchema */
-        foreach ($this->getFunctionNames($schema) as $funcNameSchema) {
-            if (($procedure = $this->getFunction($funcNameSchema->name)) !== null) {
-                $functions[$funcNameSchema->name] = $procedure;
-            }
-        }
-
-        return $functions;
-    }
-
-    /**
      * Returns all stored functions names in the database.
      *
      * @param string $schema the schema of the functions. Defaults to empty string, meaning the current or default
      *                       schema. If not empty, the returned functions names will be prefixed with the schema name.
      *
-     * @param bool   $refresh
-     *
      * @return array all stored functions names in the database.
      */
-    public function getFunctionNames($schema = '', $refresh = false)
+    public function getFunctionNames($schema = '')
     {
-        // go ahead and reset all schemas
-        $this->getCachedFunctionNames($refresh);
-        if (empty($schema)) {
-            // return all
-            return $this->functions;
-        } else {
-            $names = [];
-            foreach ($this->functions as $key => $value) {
-                if ($value->schemaName === $schema) {
-                    $names[$key] = $value;
-                }
-            }
+        $names = $this->findFunctionNames($schema);
 
-            return $names;
-        }
-    }
-
-    /**
-     * @param bool $refresh
-     *
-     * @throws \Exception
-     */
-    protected function getCachedFunctionNames($refresh = false)
-    {
-        if ($refresh ||
-            (is_null($this->functions) && (null === $this->functions = $this->getFromCache('functions')))
-        ) {
-            $names = [];
-            foreach ($this->getSchemas($refresh) as $temp) {
-                $names = array_merge($names, $this->findFunctionNames($temp));
-            }
-            ksort($names, SORT_NATURAL); // sort alphabetically
-            $this->functions = $names;
-            $this->addToCache('functions', $this->functions, true);
-        }
+        return $names;
     }
 
     /**
@@ -1771,21 +862,6 @@ MYSQL;
     {
         return $this->findRoutineNames('FUNCTION', $schema);
 //        throw new NotImplementedException("Database or driver does not support fetching all stored function names.");
-    }
-
-    /**
-     * Refreshes the schema.
-     * This method resets the loaded table metadata and command builder
-     * so that they can be recreated to reflect the change of schema.
-     */
-    public function refresh()
-    {
-        $this->schemas = null;
-        $this->tables = null;
-        $this->procedures = null;
-        $this->functions = null;
-
-        $this->flushCache();
     }
 
     /**
@@ -1917,791 +993,7 @@ MYSQL;
     {
     }
 
-    /**
-     * @param      $tables
-     * @param bool $allow_merge
-     * @param bool $allow_delete
-     * @param bool $rollback
-     *
-     * @return array
-     * @throws \Exception
-     */
-    public function updateSchema($tables, $allow_merge = false, $allow_delete = false, $rollback = false)
-    {
-        if (!is_array($tables) || empty($tables)) {
-            throw new \Exception('There are no table sets in the request.');
-        }
-
-        if (!isset($tables[0])) {
-            // single record possibly passed in without wrapper array
-            $tables = [$tables];
-        }
-
-        $created = [];
-        $references = [];
-        $indexes = [];
-        $out = [];
-        $tableExtras = [];
-        $fieldExtras = [];
-        $fieldDrops = [];
-        $relatedExtras = [];
-        $relatedDrops = [];
-        $virtualRelations = [];
-        $virtualRelationDrops = [];
-        $count = 0;
-        $singleTable = (1 == count($tables));
-
-        foreach ($tables as $table) {
-            try {
-                if (empty($tableName = array_get($table, 'name'))) {
-                    throw new \Exception('Table name missing from schema.');
-                }
-
-                //	Does it already exist
-                if (!$tableSchema = $this->getResource(DbResourceTypes::TYPE_TABLE, $tableName)) {
-                    // until views get their own resource
-                    if ($this->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
-                        $tableSchema = $this->getResource(DbResourceTypes::TYPE_VIEW, $tableName);
-                    }
-                }
-                if ($tableSchema) {
-                    if (!$allow_merge) {
-                        throw new \Exception("A table with name '$tableName' already exist in the database.");
-                    }
-
-                    \Log::debug('Schema update: ' . $tableName);
-
-                    $results = [];
-                    if (!empty($fields = array_get($table, 'field'))) {
-                        $results = $this->buildTableFields($tableSchema, $fields, true, $allow_delete);
-                    }
-                    if (!empty($related = array_get($table, 'related'))) {
-                        $related = $this->buildTableRelated($tableSchema, $related, true, $allow_delete);
-                        $results = array_merge($results, $related);
-                    }
-
-                    $this->updateTable($tableSchema, array_merge($table, $results));
-                } else {
-                    \Log::debug('Creating table: ' . $tableName);
-
-                    $results = [];
-                    if (!empty($fields = array_get($table, 'field'))) {
-                        $results = $this->createTableFields($tableName, $fields);
-                    }
-                    if (!empty($related = array_get($table, 'related'))) {
-                        $temp = $this->createTableRelated($tableName, $related);
-                        $results = array_merge($results, $temp);
-                    }
-
-                    $this->createTable($table, $results);
-
-                    if (!$singleTable && $rollback) {
-                        $created[] = $tableName;
-                    }
-                }
-
-                if (!empty($results['commands'])) {
-                    foreach ($results['commands'] as $extraCommand) {
-                        try {
-                            $this->connection->statement($extraCommand);
-                        } catch (\Exception $ex) {
-                            // oh well, we tried.
-                        }
-                    }
-                }
-
-                // add table extras
-                $extras = array_only($table, ['label', 'plural', 'alias', 'description', 'name_field']);
-                if (!empty($extras)) {
-                    $extras['table'] = $tableName;
-                    $tableExtras[] = $extras;
-                }
-
-                $fieldExtras = array_merge($fieldExtras, (array)array_get($results, 'extras'));
-                $fieldDrops = array_merge($fieldDrops, (array)array_get($results, 'drop_extras'));
-                $references = array_merge($references, (array)array_get($results, 'references'));
-                $indexes = array_merge($indexes, (array)array_get($results, 'indexes'));
-                $relatedExtras = array_merge($relatedExtras, (array)array_get($results, 'related_extras'));
-                $relatedDrops = array_merge($relatedDrops, (array)array_get($results, 'drop_related_extras'));
-                $virtualRelations = array_merge($virtualRelations, (array)array_get($results, 'virtual_relations'));
-                $virtualRelationDrops = array_merge($virtualRelationDrops,
-                    (array)array_get($results, 'drop_virtual_relations'));
-
-                $out[$count] = ['name' => $tableName];
-            } catch (\Exception $ex) {
-                if ($rollback || $singleTable) {
-                    //  Delete any created tables
-                    throw $ex;
-                }
-
-                $out[$count] = [
-                    'error' => [
-                        'message' => $ex->getMessage(),
-                        'code'    => $ex->getCode()
-                    ]
-                ];
-            }
-
-            $count++;
-        }
-
-        if (!empty($references)) {
-            $this->createFieldReferences($references);
-        }
-        if (!empty($indexes)) {
-            $this->createFieldIndexes($indexes);
-        }
-        if (!empty($tableExtras)) {
-            $this->setSchemaTableExtras($tableExtras);
-        }
-        if (!empty($fieldExtras)) {
-            $this->setSchemaFieldExtras($fieldExtras);
-        }
-        if (!empty($fieldDrops)) {
-            foreach ($fieldDrops as $table => $dropped) {
-                $this->removeSchemaExtrasForFields($table, $dropped);
-            }
-        }
-        if (!empty($relatedExtras)) {
-            $this->setSchemaRelatedExtras($relatedExtras);
-        }
-        if (!empty($relatedDrops)) {
-            foreach ($relatedDrops as $table => $dropped) {
-                $this->removeSchemaExtrasForRelated($table, $dropped);
-            }
-        }
-        if (!empty($virtualRelations)) {
-            $this->setSchemaVirtualRelationships($virtualRelations);
-        }
-        if (!empty($virtualRelationDrops)) {
-            foreach ($virtualRelationDrops as $table => $dropped) {
-                $this->removeSchemaVirtualRelationships($table, $dropped);
-            }
-        }
-
-        return $out;
-    }
-
-    /**
-     * @param string $table_name
-     * @param array  $fields
-     *
-     * @throws \Exception
-     * @return array
-     */
-    protected function createTableFields($table_name, $fields)
-    {
-        if (!is_array($fields) || empty($fields)) {
-            throw new \Exception('There are no fields in the requested schema.');
-        }
-
-        if (!isset($fields[0])) {
-            // single record possibly passed in without wrapper array
-            $fields = [$fields];
-        }
-
-        $internalTableName = $table_name;
-        if ((false === strpos($table_name, '.')) && !empty($namingSchema = $this->getNamingSchema())) {
-            $internalTableName = $namingSchema . '.' . $table_name;
-        }
-        $columns = [];
-        $references = [];
-        $indexes = [];
-        $extras = [];
-        $commands = [];
-        foreach ($fields as $field) {
-            $this->cleanClientField($field);
-            $name = array_get($field, 'name');
-
-            // clean out extras
-            $extraNew = array_only($field, $this->fieldExtras);
-            $field = array_except($field, $this->fieldExtras);
-
-            $type = strtolower((string)array_get($field, 'type'));
-            if (!$this->supportsResourceType(DbResourceTypes::TYPE_TABLE_FIELD) ||
-                array_get($extraNew, 'is_virtual', false)
-            ) {
-                // no need to build what the db doesn't support, use extras and bail
-                $extraNew['extra_type'] = $type;
-            } else {
-                if ($this->isUndiscoverableType($type)) {
-                    $extraNew['extra_type'] = $type;
-                }
-
-                $result = $this->buildTableField($internalTableName, $field);
-                $commands = array_merge($commands, (array)array_get($result, 'commands'));
-                $references = array_merge($references, (array)array_get($result, 'references'));
-                $indexes = array_merge($indexes, (array)array_get($result, 'indexes'));
-
-                $columns[$name] = $field;
-            }
-
-            if (!empty($extraNew)) {
-                $extraNew['table'] = $table_name;
-                $extraNew['field'] = $name;
-                $extras[] = $extraNew;
-            }
-        }
-
-        return [
-            'columns'    => $columns,
-            'references' => $references,
-            'indexes'    => $indexes,
-            'extras'     => $extras,
-            'commands'   => $commands,
-        ];
-    }
-
-    /**
-     * @param TableSchema $table_schema
-     * @param array       $fields
-     * @param bool        $allow_update
-     * @param bool        $allow_delete
-     *
-     * @throws \Exception
-     * @return array
-     */
-    protected function buildTableFields(
-        $table_schema,
-        $fields,
-        $allow_update = false,
-        $allow_delete = false
-    ) {
-        if (!is_array($fields) || empty($fields)) {
-            throw new \Exception('There are no fields in the requested schema.');
-        }
-
-        if (!isset($fields[0])) {
-            // single record possibly passed in without wrapper array
-            $fields = [$fields];
-        }
-
-        $columns = [];
-        $alterColumns = [];
-        $dropColumns = [];
-        $references = [];
-        $indexes = [];
-        $extras = [];
-        $dropExtras = [];
-        $commands = [];
-        $internalTableName = $table_schema->internalName;
-        foreach ($fields as $field) {
-            $this->cleanClientField($field);
-            $name = array_get($field, 'name');
-
-            /** @type ColumnSchema $oldField */
-            if ($oldField = $table_schema->getColumn($name)) {
-                // UPDATE
-                if (!$allow_update) {
-                    throw new \Exception("Field '$name' already exists in table '{$table_schema->name}'.");
-                }
-
-                $oldArray = $oldField->toArray();
-                $diffFields = array_diff($this->fieldExtras, ['picklist', 'validation', 'db_function']);
-                $extraNew = array_diff_assoc(array_only($field, $diffFields), array_only($oldArray, $diffFields));
-
-                if (array_key_exists('picklist', $field)) {
-                    $picklist = (array)array_get($field, 'picklist');
-                    $oldPicklist = (array)$oldField->picklist;
-                    if ((count($picklist) !== count($oldPicklist)) ||
-                        !empty(array_diff($picklist, $oldPicklist)) ||
-                        !empty(array_diff($oldPicklist, $picklist))
-                    ) {
-                        $extraNew['picklist'] = $picklist;
-                    }
-                }
-
-                if (array_key_exists('validation', $field)) {
-                    $validation = (array)array_get($field, 'validation');
-                    $oldValidation = (array)$oldField->validation;
-                    if (json_encode($validation) !== json_encode($oldValidation)) {
-                        $extraNew['validation'] = $validation;
-                    }
-                }
-
-                if (array_key_exists('db_function', $field)) {
-                    $dbFunction = (array)array_get($field, 'db_function');
-                    $oldFunction = (array)$oldField->dbFunction;
-                    if (json_encode($dbFunction) !== json_encode($oldFunction)) {
-                        $extraNew['db_function'] = $dbFunction;
-                    }
-                }
-
-                // clean out extras
-                $noDiff = array_merge($this->fieldExtras, ['default', 'native']);
-                $settingsNew = array_diff_assoc(array_except($field, $noDiff), array_except($oldArray, $noDiff));
-
-                // may be an array due to expressions
-                if (array_key_exists('default', $settingsNew)) {
-                    $default = $settingsNew['default'];
-                    if ($default !== $oldField->defaultValue) {
-                        $settingsNew['default'] = $default;
-                    }
-                }
-                if (array_key_exists('native', $settingsNew)) {
-                    $native = $settingsNew['native'];
-                    if ($native !== $oldField->native) {
-                        $settingsNew['native'] = $native;
-                    }
-                }
-
-                // if empty, nothing to do here, check extras
-                if (empty($settingsNew)) {
-                    if (!empty($extraNew)) {
-                        $extraNew['table'] = $table_schema->name;
-                        $extraNew['field'] = $name;
-                        $extras[] = $extraNew;
-                    }
-
-                    continue;
-                }
-
-                $type = strtolower((string)array_get($field, 'type'));
-                if (!$this->supportsResourceType(DbResourceTypes::TYPE_TABLE_FIELD) ||
-                    array_get($extraNew, 'is_virtual', false) || $oldField->isVirtual
-                ) {
-                    if (!$oldField->isVirtual) {
-                        throw new \Exception("Field '$name' already exists as non-virtual in table '{$table_schema->name}'.");
-                    }
-                    // no need to build what the db doesn't support, use extras and bail
-                    $extraNew['extra_type'] = $type;
-                } else {
-                    if ($this->isUndiscoverableType($type)) {
-                        $extraNew['extra_type'] = $type;
-                    }
-
-                    $result = $this->buildTableField($internalTableName, $field, true, $oldField);
-                    $commands = array_merge($commands, (array)array_get($result, 'commands'));
-                    $references = array_merge($references, (array)array_get($result, 'references'));
-                    $indexes = array_merge($indexes, (array)array_get($result, 'indexes'));
-
-                    $alterColumns[$name] = $field;
-                }
-            } else {
-                // CREATE
-
-                // clean out extras
-                $extraNew = array_only($field, $this->fieldExtras);
-                $field = array_except($field, $this->fieldExtras);
-
-                $type = strtolower((string)array_get($field, 'type'));
-                if (!$this->supportsResourceType(DbResourceTypes::TYPE_TABLE_FIELD) ||
-                    array_get($extraNew, 'is_virtual', false)
-                ) {
-                    // no need to build what the db doesn't support, use extras and bail
-                    $extraNew['extra_type'] = $type;
-                } else {
-                    if ($this->isUndiscoverableType($type)) {
-                        $extraNew['extra_type'] = $type;
-                    }
-
-                    $result = $this->buildTableField($internalTableName, $field, true);
-                    $commands = array_merge($commands, (array)array_get($result, 'commands'));
-                    $references = array_merge($references, (array)array_get($result, 'references'));
-                    $indexes = array_merge($indexes, (array)array_get($result, 'indexes'));
-
-                    $columns[$name] = $field;
-                }
-            }
-
-            if (!empty($extraNew)) {
-                $extraNew['table'] = $table_schema->name;
-                $extraNew['field'] = $name;
-                $extras[] = $extraNew;
-            }
-        }
-
-        if ($allow_delete) {
-            // check for columns to drop
-            /** @type  ColumnSchema $oldField */
-            foreach ($table_schema->getColumns() as $oldField) {
-                $found = false;
-                foreach ($fields as $field) {
-                    $field = array_change_key_case($field, CASE_LOWER);
-                    if (array_get($field, 'name') === $oldField->name) {
-                        $found = true;
-                    }
-                }
-                if (!$found) {
-                    if ($this->supportsResourceType(DbResourceTypes::TYPE_TABLE_FIELD) && !$oldField->isVirtual) {
-                        $dropColumns[] = $oldField->name;
-                    }
-                    $dropExtras[$table_schema->name][] = $oldField->name;
-                }
-            }
-        }
-
-        return [
-            'columns'       => $columns,
-            'alter_columns' => $alterColumns,
-            'drop_columns'  => $dropColumns,
-            'references'    => $references,
-            'indexes'       => $indexes,
-            'extras'        => $extras,
-            'drop_extras'   => $dropExtras,
-            'commands'      => $commands,
-        ];
-    }
-
-    /**
-     * @param string       $tableName
-     * @param array        $field
-     * @param bool         $oldTable
-     * @param ColumnSchema $oldField
-     *
-     * @return array
-     * @throws \Exception
-     */
-    protected function buildTableField($tableName, $field, $oldTable = false, $oldField = null)
-    {
-        $name = array_get($field, 'name');
-        $type = strtolower((string)array_get($field, 'type'));
-        $commands = [];
-        $indexes = [];
-        $references = [];
-        switch ($type) {
-            case DbSimpleTypes::TYPE_ID:
-                $pkExtras = $this->getPrimaryKeyCommands($tableName, $name);
-                $commands = array_merge($commands, $pkExtras);
-                break;
-        }
-
-        if (((DbSimpleTypes::TYPE_REF == $type) || array_get($field, 'is_foreign_key'))) {
-            // special case for references because the table referenced may not be created yet
-            if (empty($refTable = array_get($field, 'ref_table'))) {
-                throw new \Exception("Invalid schema detected - no table element for reference type of $name.");
-            }
-
-            if ((false === strpos($refTable, '.')) && !empty($namingSchema = $this->getNamingSchema())) {
-                $refTable = $namingSchema . '.' . $refTable;
-            }
-            $refColumns = array_get($field, 'ref_field', array_get($field, 'ref_fields'));
-            $refOnDelete = array_get($field, 'ref_on_delete');
-            $refOnUpdate = array_get($field, 'ref_on_update');
-
-            if ($this->allowsSeparateForeignConstraint()) {
-                if (!isset($oldField) || !$oldField->isForeignKey) {
-                    // will get to it later, $refTable may not be there
-                    $keyName = $this->makeConstraintName('fk', $tableName, $name);
-                    $references[] = [
-                        'name'      => $keyName,
-                        'table'     => $tableName,
-                        'column'    => $name,
-                        'ref_table' => $refTable,
-                        'ref_field' => $refColumns,
-                        'delete'    => $refOnDelete,
-                        'update'    => $refOnUpdate,
-                    ];
-                }
-            }
-        }
-
-        // regardless of type
-        if (array_get($field, 'is_unique')) {
-            if ($this->requiresCreateIndex(true, !$oldTable)) {
-                // will get to it later, create after table built
-                $keyName = $this->makeConstraintName('undx', $tableName, $name);
-                $indexes[] = [
-                    'name'   => $keyName,
-                    'table'  => $tableName,
-                    'column' => $name,
-                    'unique' => true,
-                    'drop'   => isset($oldField),
-                ];
-            }
-        } elseif (array_get($field, 'is_index')) {
-            if ($this->requiresCreateIndex($oldTable, !$oldTable)) {
-                // will get to it later, create after table built
-                $keyName = $this->makeConstraintName('ndx', $tableName, $name);
-                $indexes[] = [
-                    'name'   => $keyName,
-                    'table'  => $tableName,
-                    'column' => $name,
-                    'drop'   => isset($oldField),
-                ];
-            }
-        }
-
-        return ['field' => $field, 'commands' => $commands, 'references' => $references, 'indexes' => $indexes];
-    }
-
-    /**
-     * @param string $table_name
-     * @param array  $related
-     *
-     * @throws \Exception
-     * @return array
-     */
-    public function createTableRelated($table_name, $related)
-    {
-        if (!is_array($related) || empty($related)) {
-            return [];
-        }
-
-        if (!isset($related[0])) {
-            // single record possibly passed in without wrapper array
-            $related = [$related];
-        }
-
-        $extra = [];
-        $virtual = [];
-        foreach ($related as $relation) {
-            $this->cleanClientRelation($relation);
-            // clean out extras
-            $extraNew = array_only($relation, $this->relatedExtras);
-            if (!empty($extraNew['alias']) || !empty($extraNew['label']) || !empty($extraNew['description']) ||
-                !empty($extraNew['always_fetch']) || !empty($extraNew['flatten']) ||
-                !empty($extraNew['flatten_drop_prefix'])
-            ) {
-                $extraNew['table'] = $table_name;
-                $extraNew['relationship'] = array_get($relation, 'name');
-                $extra[] = $extraNew;
-            }
-
-            // only virtual
-            if (boolval(array_get($relation, 'is_virtual'))) {
-                $relation = array_except($relation, $this->relatedExtras);
-                $relation['table'] = $table_name;
-                $virtual[] = $relation;
-            } else {
-                // todo create foreign keys here eventually as well?
-            }
-        }
-
-        return [
-            'related_extras'    => $extra,
-            'virtual_relations' => $virtual,
-        ];
-    }
-
-    /**
-     * @param TableSchema $table_schema
-     * @param array       $related
-     * @param bool        $allow_update
-     * @param bool        $allow_delete
-     *
-     * @throws \Exception
-     * @return array
-     */
-    public function buildTableRelated(
-        $table_schema,
-        $related,
-        $allow_update = false,
-        $allow_delete = false
-    ) {
-        if (!is_array($related) || empty($related)) {
-            throw new \Exception('There are no related elements in the requested schema.');
-        }
-
-        if (!isset($related[0])) {
-            // single record possibly passed in without wrapper array
-            $related = [$related];
-        }
-
-        $extras = [];
-        $dropExtras = [];
-        $virtuals = [];
-        $dropVirtuals = [];
-        foreach ($related as $relation) {
-            $this->cleanClientRelation($relation);
-            $name = array_get($relation, 'name');
-
-            /** @type RelationSchema $oldRelation */
-            if ($oldRelation = $table_schema->getRelation($name)) {
-                // UPDATE
-                if (!$allow_update) {
-                    throw new \Exception("Relation '$name' already exists in table '{$table_schema->name}'.");
-                }
-
-                $oldArray = $oldRelation->toArray();
-                $extraNew = array_only($relation, $this->relatedExtras);
-                $extraOld = array_only($oldArray, $this->relatedExtras);
-                if (!empty($extraNew = array_diff_assoc($extraNew, $extraOld))) {
-                    // if all empty, delete the extras entry, otherwise update
-                    $combined = array_merge($extraOld, $extraNew);
-                    if (!empty($combined['alias']) || !empty($combined['label']) || !empty($combined['description']) ||
-                        !empty($combined['always_fetch']) || !empty($combined['flatten']) ||
-                        !empty($combined['flatten_drop_prefix'])
-                    ) {
-                        $extraNew['table'] = $table_schema->name;
-                        $extraNew['relationship'] = array_get($relation, 'name');
-                        $extras[] = $extraNew;
-                    } else {
-                        $dropExtras[$table_schema->name][] = $oldRelation->name;
-                    }
-                }
-
-                // only virtual
-                if (boolval(array_get($relation, 'is_virtual'))) {
-                    // clean out extras
-                    $noDiff = array_merge($this->relatedExtras, ['native']);
-                    $relation = array_except($relation, $noDiff);
-                    if (!empty(array_diff_assoc($relation, array_except($oldArray, $noDiff)))) {
-                        $relation['table'] = $table_schema->name;
-                        $virtuals[] = $relation;
-                    }
-                }
-            } else {
-                // CREATE
-                // clean out extras
-                $extraNew = array_only($relation, $this->relatedExtras);
-                if (!empty($extraNew['alias']) || !empty($extraNew['label']) || !empty($extraNew['description']) ||
-                    !empty($extraNew['always_fetch']) || !empty($extraNew['flatten']) ||
-                    !empty($extraNew['flatten_drop_prefix'])
-                ) {
-                    $extraNew['table'] = $table_schema->name;
-                    $extraNew['relationship'] = array_get($relation, 'name');
-                    $extras[] = $extraNew;
-                }
-
-                // only virtual
-                if (boolval(array_get($relation, 'is_virtual'))) {
-                    $relation = array_except($relation, $this->relatedExtras);
-                    $relation['table'] = $table_schema->name;
-                    $virtuals[] = $relation;
-                }
-            }
-        }
-
-        if ($allow_delete && isset($oldSchema)) {
-            // check for relations to drop
-            /** @type RelationSchema $oldField */
-            foreach ($oldSchema->getRelations() as $oldRelation) {
-                $found = false;
-                foreach ($related as $relation) {
-                    $relation = array_change_key_case($relation, CASE_LOWER);
-                    if (array_get($relation, 'name') === $oldRelation->name) {
-                        $found = true;
-                    }
-                }
-                if (!$found) {
-                    if ($oldRelation->isVirtual) {
-                        $dropVirtuals[$table_schema->name][] = $oldRelation->toArray();
-                    } else {
-                        $dropExtras[$table_schema->name][] = $oldRelation->name;
-                    }
-                }
-            }
-        }
-
-        return [
-            'related_extras'         => $extras,
-            'drop_related_extras'    => $dropExtras,
-            'virtual_relations'      => $virtuals,
-            'drop_virtual_relations' => $dropVirtuals,
-        ];
-    }
-
-    protected function cleanClientField(array &$field)
-    {
-        $field = array_change_key_case($field, CASE_LOWER);
-        if (empty($name = array_get($field, 'name'))) {
-            throw new \Exception("Invalid schema detected - no name element.");
-        }
-        if (!empty($label = array_get($field, 'label'))) {
-            if ($label === camelize($name, '_', true)) {
-                unset($field['label']); // no need to create an entry just for the same label
-            }
-        }
-
-        $picklist = array_get($field, 'picklist');
-        if (!empty($picklist) && !is_array($picklist)) {
-            // accept comma delimited from client side
-            $field['picklist'] = array_map('trim', explode(',', trim($picklist, ',')));
-        }
-
-        // make sure we have boolean values, not integers or strings
-        $booleanFieldNames = [
-            'allow_null',
-            'fixed_length',
-            'supports_multibyte',
-            'auto_increment',
-            'is_unique',
-            'is_index',
-            'is_primary_key',
-            'is_foreign_key',
-            'is_virtual',
-            'is_aggregate',
-        ];
-        foreach ($booleanFieldNames as $name) {
-            if (isset($field[$name])) {
-                $field[$name] = boolval($field[$name]);
-            }
-        }
-
-        // tighten up type info
-        if (isset($field['type'])) {
-            $type = strtolower((string)array_get($field, 'type'));
-            switch ($type) {
-                case 'pk':
-                    $type = DbSimpleTypes::TYPE_ID;
-                    break;
-                case 'fk':
-                    $type = DbSimpleTypes::TYPE_REF;
-                    break;
-                case 'virtual':
-                    // upgrade old virtual field definitions
-                    $field['is_virtual'] = true;
-                    if (!empty($functionInfo = array_get($field, 'db_function'))) {
-                        $type = array_get($functionInfo, 'type', DbSimpleTypes::TYPE_STRING);
-                        if ($function = array_get($functionInfo, 'function')) {
-                            $field['db_function'] = [
-                                [
-                                    'use'           => [DbFunctionUses::SELECT],
-                                    'function'      => $function,
-                                    'function_type' => FunctionTypes::DATABASE,
-                                ]
-                            ];
-                        }
-                        if ($aggregate = array_get($functionInfo, 'aggregate')) {
-                            $field['is_aggregate'] = $aggregate;
-                        }
-                    }
-                    break;
-            }
-            $field['type'] = $type;
-        }
-    }
-
-    protected function cleanClientRelation(array &$relation)
-    {
-        $relation = array_change_key_case($relation, CASE_LOWER);
-        // make sure we have boolean values, not integers or strings
-        $booleanFieldNames = [
-            'is_virtual',
-            'always_fetch',
-            'flatten',
-            'flatten_drop_prefix',
-        ];
-        foreach ($booleanFieldNames as $name) {
-            if (isset($relation[$name])) {
-                $relation[$name] = boolval($relation[$name]);
-            }
-        }
-
-        if (boolval(array_get($relation, 'is_virtual'))) {
-            // tighten up type info
-            if (isset($relation['type'])) {
-                $type = strtolower((string)array_get($relation, 'type', ''));
-                switch ($type) {
-                    case RelationSchema::BELONGS_TO:
-                    case RelationSchema::HAS_MANY:
-                    case RelationSchema::MANY_MANY:
-                        $relation['type'] = $type;
-                        break;
-                    default:
-                        throw new \Exception("Invalid schema detected - invalid or missing type element.");
-                        break;
-                }
-            }
-        } else {
-            if (empty(array_get($relation, 'name'))) {
-                throw new \Exception("Invalid schema detected - no name element.");
-            }
-        }
-    }
-
-    protected static function isUndiscoverableType($type)
+    public static function isUndiscoverableType($type)
     {
         switch ($type) {
             // keep our type extensions
@@ -3196,7 +1488,7 @@ MYSQL;
      *             for more for more information.
      * @throws \Exception
      */
-    protected function createTable($table, $options)
+    public function createTable($table, $options)
     {
         if (empty($tableName = array_get($table, 'name'))) {
             throw new \Exception("No valid name exist in the received table schema.");
@@ -3233,7 +1525,7 @@ MYSQL;
      *
      * @throws \Exception
      */
-    protected function updateTable($tableSchema, $changes)
+    public function updateTable($tableSchema, $changes)
     {
         //  Is there a name update
         if (!empty($changes['new_name'])) {
@@ -3307,7 +1599,7 @@ MYSQL;
      * @param array $references
      *
      */
-    protected function createFieldReferences($references)
+    public function createFieldReferences($references)
     {
         if (!empty($references)) {
             foreach ($references as $reference) {
@@ -3342,7 +1634,7 @@ MYSQL;
      * @param array $indexes
      *
      */
-    protected function createFieldIndexes($indexes)
+    public function createFieldIndexes($indexes)
     {
         if (!empty($indexes)) {
             foreach ($indexes as $index) {
@@ -3364,20 +1656,16 @@ MYSQL;
     }
 
     /**
-     * @param string $name
-     * @param array  $in_params
+     * @param FunctionSchema $function
+     * @param array          $in_params
      *
      * @throws \Exception
      * @return mixed
      */
-    public function callFunction($name, array $in_params)
+    public function callFunction($function, array $in_params)
     {
         if (!$this->supportsResourceType(DbResourceTypes::TYPE_FUNCTION)) {
             throw new \Exception('Stored Functions are not supported by this database connection.');
-        }
-
-        if (null === $function = $this->getFunction($name)) {
-            throw new NotFoundException("Function '$name' can not be found.");
         }
 
         $paramSchemas = $function->getParameters();
@@ -3486,21 +1774,17 @@ MYSQL;
     }
 
     /**
-     * @param string $name
-     * @param array  $in_params
-     * @param array  $out_params
+     * @param ProcedureSchema $procedure
+     * @param array           $in_params
+     * @param array           $out_params
      *
      * @throws \Exception
      * @return mixed
      */
-    public function callProcedure($name, array $in_params, array &$out_params)
+    public function callProcedure($procedure, array $in_params, array &$out_params)
     {
         if (!$this->supportsResourceType(DbResourceTypes::TYPE_PROCEDURE)) {
             throw new BadRequestException('Stored Procedures are not supported by this database connection.');
-        }
-
-        if (null === $procedure = $this->getProcedure($name)) {
-            throw new NotFoundException("Procedure '$name' can not be found.");
         }
 
         $paramSchemas = $procedure->getParameters();

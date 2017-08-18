@@ -57,10 +57,6 @@ abstract class BaseDbResource extends BaseRestResource
 
         /** @var BaseDbService $parent */
         $this->serviceId = $parent->getServiceId();
-        /** @var BaseDbService $parent */
-        $this->dbConn = $parent->getConnection();
-        /** @var BaseDbService $parent */
-        $this->schema = $parent->getSchema();
     }
 
     /**

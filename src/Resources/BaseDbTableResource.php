@@ -6,7 +6,9 @@ use Config;
 use DreamFactory\Core\Components\DataValidator;
 use DreamFactory\Core\Components\Service2ServiceRequest;
 use DreamFactory\Core\Contracts\ServiceInterface;
+use DreamFactory\Core\Database\Components\TableDescriber;
 use DreamFactory\Core\Database\Enums\DbFunctionUses;
+use DreamFactory\Core\Database\Enums\FunctionTypes;
 use DreamFactory\Core\Database\Schema\RelationSchema;
 use DreamFactory\Core\Database\Schema\TableSchema;
 use DreamFactory\Core\Database\Schema\ColumnSchema;
@@ -15,6 +17,7 @@ use DreamFactory\Core\Enums\DbComparisonOperators;
 use DreamFactory\Core\Enums\DbLogicalOperators;
 use DreamFactory\Core\Enums\DbResourceTypes;
 use DreamFactory\Core\Enums\DbSimpleTypes;
+use DreamFactory\Core\Enums\Verbs;
 use DreamFactory\Core\Enums\VerbsMask;
 use DreamFactory\Core\Exceptions\BadRequestException;
 use DreamFactory\Core\Exceptions\BatchException;
@@ -23,15 +26,13 @@ use DreamFactory\Core\Exceptions\NotFoundException;
 use DreamFactory\Core\Exceptions\NotImplementedException;
 use DreamFactory\Core\Exceptions\InternalServerErrorException;
 use DreamFactory\Core\Exceptions\RestException;
-use DreamFactory\Core\Models\Service;
 use DreamFactory\Core\Utility\ResourcesWrapper;
 use DreamFactory\Core\Utility\Session;
-use DreamFactory\Core\Enums\Verbs;
 use ServiceManager;
 
 abstract class BaseDbTableResource extends BaseDbResource
 {
-    use DataValidator;
+    use DataValidator, TableDescriber;
 
     //*************************************************************************
     //	Constants
@@ -104,13 +105,7 @@ abstract class BaseDbTableResource extends BaseDbResource
      */
     public function listResources($schema = null, $refresh = false)
     {
-        /** @type TableSchema[] $result */
-        $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE, $schema, $refresh);
-        if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
-            // temporary until view is moved to its own resource
-            $result2 = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schema, $refresh);
-            $result = array_merge($result, $result2);
-        }
+        $result = $this->getTableNames($schema, $refresh);
         $resources = [];
         foreach ($result as $table) {
             $name = $table->getName(true);
@@ -151,13 +146,7 @@ abstract class BaseDbTableResource extends BaseDbResource
 
         $refresh = $this->request->getParameterAsBool(ApiOptions::REFRESH);
         $schema = $this->request->getParameter(ApiOptions::SCHEMA, '');
-        /** @type TableSchema[] $result */
-        $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE, $schema, $refresh);
-        if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
-            // temporary until view is moved to its own resource
-            $result2 = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schema, $refresh);
-            $result = array_merge($result, $result2);
-        }
+        $result = $this->getTableNames($schema, $refresh);
         $resources = [];
         foreach ($result as $table) {
             $access = $this->getPermissions($table->getName(true));
@@ -169,6 +158,51 @@ abstract class BaseDbTableResource extends BaseDbResource
         }
 
         return $resources;
+    }
+
+    /**
+     * @param string $schema
+     * @param bool   $refresh
+     * @return TableSchema[]
+     */
+    protected function getTableNames($schema = null, $refresh = false)
+    {
+        if ($refresh || (is_null($tables = $this->parent->getFromCache('tables')))) {
+            $tables = [];
+            foreach ($this->parent->getSchemas() as $schemaName) {
+                $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE, $schemaName);
+                $tables = array_merge($tables, $result);
+                // Until views are separated as separate resource
+                if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
+                    $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schemaName);
+                    $tables = array_merge($tables, $result);
+                }
+            }
+            ksort($tables, SORT_NATURAL); // sort alphabetically
+            // merge db extras
+            if (!empty($extrasEntries = $this->getSchemaExtrasForTables(array_keys($tables)))) {
+                foreach ($extrasEntries as $extras) {
+                    if (!empty($extraName = strtolower(strval($extras['table'])))) {
+                        if (array_key_exists($extraName, $tables)) {
+                            $tables[$extraName]->fill(array_except($extras, 'id'));
+                        }
+                    }
+                }
+            }
+            $this->parent->addToCache('tables', $tables, true);
+        }
+        if (!empty($schema)) {
+            $out = [];
+            foreach ($tables as $table => $info) {
+                if (starts_with($table, $schema . '.')) {
+                    $out[$table] = $info;
+                }
+            }
+
+            $tables = $out;
+        }
+
+        return $tables;
     }
 
     /**
@@ -184,19 +218,12 @@ abstract class BaseDbTableResource extends BaseDbResource
             throw new \InvalidArgumentException('Table name cannot be empty.');
         }
 
-        //  Build the lower-cased table array
-        /** @var TableSchema[] $result */
-        $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE);
-        if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
-            // temporary until view is moved to its own resource
-            $result2 = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW);
-            $result = array_merge($result, $result2);
-        }
+        $result = $this->getTableNames();
+        // re-key by alias
         $tables = [];
         foreach ($result as $table) {
             $tables[strtolower($table->getName(true))] = $table;
         }
-
         //	Search normal, return real name
         $ndx = strtolower($name);
         if (isset($tables[$ndx])) {
@@ -463,7 +490,8 @@ abstract class BaseDbTableResource extends BaseDbResource
 
             $asList = $this->request->getParameterAsBool(ApiOptions::AS_LIST);
             $idField = $this->request->getParameter(ApiOptions::ID_FIELD, static::getResourceIdentifier());
-            $result = ResourcesWrapper::cleanResources($result, $asList, $idField, ApiOptions::FIELDS_ALL, !empty($meta));
+            $result = ResourcesWrapper::cleanResources($result, $asList, $idField, ApiOptions::FIELDS_ALL,
+                !empty($meta));
 
             if (!empty($meta)) {
                 $result['meta'] = $meta;
@@ -1917,15 +1945,107 @@ abstract class BaseDbTableResource extends BaseDbResource
                 return new TableSchema($result);
             }
         } else {
-            if ($result = $this->parent->getSchema()->getResource(DbResourceTypes::TYPE_TABLE, $table)) {
-                return $result;
-            }
-            if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
-                // temporary until view gets its own resource
-                if ($result = $this->parent->getSchema()->getResource(DbResourceTypes::TYPE_VIEW, $table)) {
-                    return $result;
+            $cacheKey = 'table:' . strtolower($table);
+            if (is_null($result = $this->parent->getFromCache($cacheKey))) {
+                $schema = $this->parent->getSchema();
+                if ($tableSchema = array_get($this->getTableNames(), strtolower($table))) {
+                    /** @type TableSchema $result */
+                    if (!$result = $schema->getResource(DbResourceTypes::TYPE_TABLE, $tableSchema)) {
+                        if ($schema->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
+                            $result = $schema->getResource(DbResourceTypes::TYPE_VIEW, $tableSchema);
+                        }
+                    }
+                    if ($result) {
+                        $tableSchema = $result;
+                        // merge db extras
+                        if (!empty($extras = $this->getSchemaExtrasForFields($tableSchema->name))) {
+                            foreach ($extras as $extra) {
+                                if (!empty($columnName = array_get($extra, 'field'))) {
+                                    unset($extra['field']);
+                                    if (!empty($type = array_get($extra, 'extra_type'))) {
+                                        $extra['type'] = $type;
+                                        // upgrade old entries
+                                        if ('virtual' === $type) {
+                                            $extra['is_virtual'] = true;
+                                            if (!empty($functionInfo = array_get($extra, 'db_function'))) {
+                                                $type = $extra['type'] = array_get($functionInfo, 'type', DbSimpleTypes::TYPE_STRING);
+                                                if ($function = array_get($functionInfo, 'function')) {
+                                                    $extra['db_function'] = [
+                                                        [
+                                                            'use'           => [DbFunctionUses::SELECT],
+                                                            'function'      => $function,
+                                                            'function_type' => FunctionTypes::DATABASE,
+                                                        ]
+                                                    ];
+                                                }
+                                                if ($aggregate = array_get($functionInfo, 'aggregate')) {
+                                                    $extra['is_aggregate'] = $aggregate;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    unset($extra['extra_type']);
+
+                                    if (!empty($alias = array_get($extra, 'alias'))) {
+                                        $extra['quotedAlias'] = $schema->quoteColumnName($alias);
+                                    }
+
+                                    if (null !== $c = $result->getColumn($columnName)) {
+                                        $c->fill($extra);
+                                    } elseif (!empty($type) && (array_get($extra, 'is_virtual') ||
+                                            !$schema->supportsResourceType(DbResourceTypes::TYPE_TABLE_FIELD))) {
+                                        $extra['name'] = $columnName;
+                                        $c = new ColumnSchema($extra);
+                                        $c->quotedName = $schema->quoteColumnName($c->name);
+                                        $tableSchema->addColumn($c);
+                                    }
+                                }
+                            }
+                        }
+                        if (!empty($extras = $this->getSchemaVirtualRelationships($tableSchema->name))) {
+                            foreach ($extras as $extra) {
+                                $refService = null;
+                                $junctionService = null;
+                                $si = array_get($extra, 'ref_service_id');
+                                if ($this->getServiceId() !== $si) {
+                                    $refService = ServiceManager::getServiceNameById($si);
+                                }
+                                $si = array_get($extra, 'junction_service_id');
+                                if (!empty($si) && ($this->getServiceId() !== $si)) {
+                                    $junctionService = ServiceManager::getServiceNameById($si);
+                                }
+                                $extra['name'] = RelationSchema::buildName(
+                                    array_get($extra, 'type'),
+                                    array_get($extra, 'field'),
+                                    $refService,
+                                    array_get($extra, 'ref_table'),
+                                    array_get($extra, 'ref_field'),
+                                    $junctionService,
+                                    array_get($extra, 'junction_table')
+                                );
+                                $relation = new RelationSchema($extra);
+                                $relation->isVirtual = true;
+                                $tableSchema->addRelation($relation);
+                            }
+                        }
+                        if (!empty($extras = $this->getSchemaExtrasForRelated($tableSchema->name))) {
+                            foreach ($extras as $extra) {
+                                if (!empty($relatedName = array_get($extra, 'relationship'))) {
+                                    if (null !== $relationship = $tableSchema->getRelation($relatedName)) {
+                                        $relationship->fill($extra);
+                                        if (isset($extra['always_fetch']) && $extra['always_fetch']) {
+                                            $tableSchema->fetchRequiresRelations = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        $this->parent->addToCache($cacheKey, $tableSchema, true);
+                    }
                 }
             }
+
+            return $result;
         }
 
         return null;
@@ -1996,7 +2116,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         switch ($relation->type) {
             case RelationSchema::BELONGS_TO:
                 $refService = ($this->getServiceId() !== $relation->refServiceId) ?
-                    Service::getCachedNameById($relation->refServiceId) :
+                    ServiceManager::getServiceNameById($relation->refServiceId) :
                     $this->getServiceName();
                 $refSchema = $this->getTableSchema($refService, $relation->refTable);
                 $refTable = $refSchema->getName(true);
@@ -2037,7 +2157,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                 break;
             case RelationSchema::HAS_MANY:
                 $refService = ($this->getServiceId() !== $relation->refServiceId) ?
-                    Service::getCachedNameById($relation->refServiceId) :
+                    ServiceManager::getServiceNameById($relation->refServiceId) :
                     $this->getServiceName();
                 $refSchema = $this->getTableSchema($refService, $relation->refTable);
                 $refTable = $refSchema->getName(true);
@@ -2077,7 +2197,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                 break;
             case RelationSchema::MANY_MANY:
                 $junctionService = ($this->getServiceId() !== $relation->junctionServiceId) ?
-                    Service::getCachedNameById($relation->junctionServiceId) :
+                    ServiceManager::getServiceNameById($relation->junctionServiceId) :
                     $this->getServiceName();
                 $junctionSchema = $this->getTableSchema($junctionService, $relation->junctionTable);
                 $junctionTable = $junctionSchema->getName(true);
@@ -2113,7 +2233,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                     }
                     if (!empty($relatedIds)) {
                         $refService = ($this->getServiceId() !== $relation->refServiceId) ?
-                            Service::getCachedNameById($relation->refServiceId) :
+                            ServiceManager::getServiceNameById($relation->refServiceId) :
                             $this->getServiceName();
                         $refSchema = $this->getTableSchema($refService, $relation->refTable);
                         $refTable = $refSchema->getName(true);
@@ -2178,7 +2298,7 @@ abstract class BaseDbTableResource extends BaseDbResource
     {
         try {
             $refService = ($this->getServiceId() !== $relation->refServiceId) ?
-                Service::getCachedNameById($relation->refServiceId) :
+                ServiceManager::getServiceNameById($relation->refServiceId) :
                 $this->getServiceName();
             $refSchema = $this->getTableSchema($refService, $relation->refTable);
             $refTable = $refSchema->getName(true);
@@ -2271,7 +2391,7 @@ abstract class BaseDbTableResource extends BaseDbResource
 
         try {
             $refService = ($this->getServiceId() !== $relation->refServiceId) ?
-                Service::getCachedNameById($relation->refServiceId) :
+                ServiceManager::getServiceNameById($relation->refServiceId) :
                 $this->getServiceName();
             $refSchema = $this->getTableSchema($refService, $relation->refTable);
             $refTable = $refSchema->getName(true);
@@ -2584,7 +2704,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             }
 
             $refService = ($this->getServiceId() !== $relation->refServiceId) ?
-                Service::getCachedNameById($relation->refServiceId) :
+                ServiceManager::getServiceNameById($relation->refServiceId) :
                 $this->getServiceName();
             $refSchema = $this->getTableSchema($refService, $relation->refTable);
             $refTable = $refSchema->getName(true);
@@ -2606,7 +2726,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             }
 
             $junctionService = ($this->getServiceId() !== $relation->junctionServiceId) ?
-                Service::getCachedNameById($relation->junctionServiceId) :
+                ServiceManager::getServiceNameById($relation->junctionServiceId) :
                 $this->getServiceName();
             $junctionSchema = $this->getTableSchema($junctionService, $relation->junctionTable);
             $junctionTable = $junctionSchema->getName(true);
@@ -2705,7 +2825,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                     if (!empty($refId)) {
                         $createMap[] = [
                             $junctionRefField->getName(true) => array_get($refId, $refPkFieldAlias),
-                            $junctionField->getName(true) => $one_id
+                            $junctionField->getName(true)    => $one_id
                         ];
                     }
                 }
@@ -2820,7 +2940,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                 }
                 if (!is_null($value)) {
                     if (!is_array($value)) {
-                        $value = $this->schema->typecastToNative($value, $info);
+                        $value = $this->parent->getSchema()->typecastToNative($value, $info);
                     }
                     $id = $value;
                 } else {
@@ -2844,7 +2964,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                     }
                     if (!is_null($value)) {
                         if (!is_array($value)) {
-                            $value = $this->schema->typecastToNative($value, $info);
+                            $value = $this->parent->getSchema()->typecastToNative($value, $info);
                         }
                         $id[$name] = $value;
                     } else {
@@ -2883,11 +3003,11 @@ abstract class BaseDbTableResource extends BaseDbResource
      */
     protected function parseValueForSet($value, $field_info, $for_update = false)
     {
-        $value = $this->schema->typecastToNative($value, $field_info);
+        $value = $this->parent->getSchema()->typecastToNative($value, $field_info);
 
         if (!empty($function = $field_info->getDbFunction($for_update ? DbFunctionUses::UPDATE : DbFunctionUses::INSERT))) {
             $function = str_ireplace('{value}', (is_string($value) ? "'$value'" : $value), $function);
-            $value = $this->dbConn->raw($function);
+            $value = $this->parent->getConnection()->raw($function);
         }
 
         return $value;
@@ -3582,7 +3702,7 @@ abstract class BaseDbTableResource extends BaseDbResource
 
     /**
      * @param array $record
-     * @param array $id_field
+     * @param string|array $id_field
      */
     protected static function removeIds(&$record, $id_field)
     {
@@ -4341,7 +4461,8 @@ abstract class BaseDbTableResource extends BaseDbResource
         ];
 
         $base['paths'] = array_merge($base['paths'], $apis);
-        $base['definitions'] = array_merge($base['definitions'], static::getApiDocModels());
+        $base['definitions'] = array_merge($base['definitions'], static::getApiDocModels(),
+            static::getApiDocCommonModels());
 
         return $base;
     }

@@ -3,24 +3,29 @@
 namespace DreamFactory\Core\Database\Resources;
 
 use DreamFactory\Core\Components\DataValidator;
+use DreamFactory\Core\Database\Components\TableDescriber;
+use DreamFactory\Core\Database\Enums\DbFunctionUses;
+use DreamFactory\Core\Database\Enums\FunctionTypes;
 use DreamFactory\Core\Database\Schema\ColumnSchema;
 use DreamFactory\Core\Database\Schema\RelationSchema;
 use DreamFactory\Core\Database\Schema\TableSchema;
 use DreamFactory\Core\Enums\ApiOptions;
 use DreamFactory\Core\Enums\DbResourceTypes;
+use DreamFactory\Core\Enums\DbSimpleTypes;
+use DreamFactory\Core\Enums\Verbs;
 use DreamFactory\Core\Enums\VerbsMask;
 use DreamFactory\Core\Events\ServiceModifiedEvent;
 use DreamFactory\Core\Exceptions\InternalServerErrorException;
 use DreamFactory\Core\Exceptions\NotFoundException;
 use DreamFactory\Core\Exceptions\RestException;
+use DreamFactory\Core\Exceptions\BadRequestException;
 use DreamFactory\Core\Models\Service;
 use DreamFactory\Core\Utility\ResourcesWrapper;
-use DreamFactory\Core\Exceptions\BadRequestException;
-use DreamFactory\Core\Enums\Verbs;
+use ServiceManager;
 
 class DbSchemaResource extends BaseDbResource
 {
-    use DataValidator;
+    use DataValidator, TableDescriber;
 
     //*************************************************************************
     //	Constants
@@ -43,6 +48,31 @@ class DbSchemaResource extends BaseDbResource
      * @var mixed Resource ID.
      */
     protected $resourceId2;
+    /**
+     * @var array
+     */
+    protected $fieldExtras = [
+        'alias',
+        'label',
+        'description',
+        'picklist',
+        'validation',
+        'client_info',
+        'db_function',
+        'is_virtual',
+        'is_aggregate',
+    ];
+    /**
+     * @var array
+     */
+    protected $relatedExtras = [
+        'alias',
+        'label',
+        'description',
+        'always_fetch',
+        'flatten',
+        'flatten_drop_prefix',
+    ];
 
     //*************************************************************************
     //	Methods
@@ -61,13 +91,7 @@ class DbSchemaResource extends BaseDbResource
      */
     public function listResources($schema = null, $refresh = false)
     {
-        /** @type TableSchema[] $result */
-        $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE, $schema, $refresh);
-        if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
-            // temporary until view is moved to its own resource
-            $result2 = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schema, $refresh);
-            $result = array_merge($result, $result2);
-        }
+        $result = $this->getTableNames($schema, $refresh);
         $resources = [];
         foreach ($result as $table) {
             if (!empty($this->getPermissions($table->name))) {
@@ -107,14 +131,7 @@ class DbSchemaResource extends BaseDbResource
 
         $refresh = $this->request->getParameterAsBool(ApiOptions::REFRESH);
         $schema = $this->request->getParameter(ApiOptions::SCHEMA, '');
-
-        /** @type TableSchema[] $result */
-        $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE, $schema, $refresh);
-        if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
-            // temporary until view is moved to its own resource
-            $result2 = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schema, $refresh);
-            $result = array_merge($result, $result2);
-        }
+        $result = $this->getTableNames($schema, $refresh);
         $resources = [];
         foreach ($result as $table) {
             $access = $this->getPermissions($table->name);
@@ -144,11 +161,56 @@ class DbSchemaResource extends BaseDbResource
     }
 
     /**
+     * @param string $schema
+     * @param bool   $refresh
+     * @return TableSchema[]
+     */
+    protected function getTableNames($schema = null, $refresh = false)
+    {
+        if ($refresh || (is_null($tables = $this->parent->getFromCache('tables')))) {
+            $tables = [];
+            foreach ($this->parent->getSchemas() as $schemaName) {
+                $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE, $schemaName);
+                $tables = array_merge($tables, $result);
+                // Until views are separated as separate resource
+                if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
+                    $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schemaName);
+                    $tables = array_merge($tables, $result);
+                }
+            }
+            ksort($tables, SORT_NATURAL); // sort alphabetically
+            // merge db extras
+            if (!empty($extrasEntries = $this->getSchemaExtrasForTables(array_keys($tables)))) {
+                foreach ($extrasEntries as $extras) {
+                    if (!empty($extraName = strtolower(strval($extras['table'])))) {
+                        if (array_key_exists($extraName, $tables)) {
+                            $tables[$extraName]->fill(array_except($extras, 'id'));
+                        }
+                    }
+                }
+            }
+            $this->parent->addToCache('tables', $tables, true);
+        }
+        if (!empty($schema)) {
+            $out = [];
+            foreach ($tables as $table => $info) {
+                if (starts_with($table, $schema . '.')) {
+                    $out[$table] = $info;
+                }
+            }
+
+            $tables = $out;
+        }
+
+        return $tables;
+    }
+
+    /**
      * Refreshes all schema associated with this db connection:
      */
     public function refreshCachedTables()
     {
-        $this->parent->refreshTableCache();
+        $this->parent->flush();
         event(new ServiceModifiedEvent(
             new Service([
                 'id'   => $this->getServiceId(),
@@ -629,19 +691,110 @@ class DbSchemaResource extends BaseDbResource
         return $result;
     }
 
-
     protected function getTableSchema($name, $refresh = false)
     {
-        if ($table = $this->parent->getSchema()->getResource(DbResourceTypes::TYPE_TABLE, $name, $refresh)) {
-            return $table;
+        $result = null;
+        $cacheKey = 'table:' . strtolower($name);
+        if ($refresh || (is_null($result = $this->parent->getFromCache($cacheKey)))) {
+            $schema = $this->parent->getSchema();
+            if ($tableSchema = array_get($this->getTableNames(), strtolower($name))) {
+                /** @type TableSchema $result */
+                if (!$result = $schema->getResource(DbResourceTypes::TYPE_TABLE, $tableSchema)) {
+                    if ($schema->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
+                    $result = $schema->getResource(DbResourceTypes::TYPE_VIEW, $tableSchema);
+                    }
+                }
+                if ($result) {
+                    $tableSchema = $result;
+                    // merge db extras
+                    if (!empty($extras = $this->getSchemaExtrasForFields($tableSchema->name))) {
+                        foreach ($extras as $extra) {
+                            if (!empty($columnName = array_get($extra, 'field'))) {
+                                unset($extra['field']);
+                                if (!empty($type = array_get($extra, 'extra_type'))) {
+                                    $extra['type'] = $type;
+                                    // upgrade old entries
+                                    if ('virtual' === $type) {
+                                        $extra['is_virtual'] = true;
+                                        if (!empty($functionInfo = array_get($extra, 'db_function'))) {
+                                            $type = $extra['type'] = array_get($functionInfo, 'type', DbSimpleTypes::TYPE_STRING);
+                                            if ($function = array_get($functionInfo, 'function')) {
+                                                $extra['db_function'] = [
+                                                    [
+                                                        'use'           => [DbFunctionUses::SELECT],
+                                                        'function'      => $function,
+                                                        'function_type' => FunctionTypes::DATABASE,
+                                                    ]
+                                                ];
+                                            }
+                                            if ($aggregate = array_get($functionInfo, 'aggregate')) {
+                                                $extra['is_aggregate'] = $aggregate;
+                                            }
+                                        }
+                                    }
+                                }
+                                unset($extra['extra_type']);
+
+                                if (!empty($alias = array_get($extra, 'alias'))) {
+                                    $extra['quotedAlias'] = $schema->quoteColumnName($alias);
+                                }
+
+                                if (null !== $c = $result->getColumn($columnName)) {
+                                    $c->fill($extra);
+                                } elseif (!empty($type) && (array_get($extra, 'is_virtual') ||
+                                        !$schema->supportsResourceType(DbResourceTypes::TYPE_TABLE_FIELD))) {
+                                    $extra['name'] = $columnName;
+                                    $c = new ColumnSchema($extra);
+                                    $c->quotedName = $schema->quoteColumnName($c->name);
+                                    $tableSchema->addColumn($c);
+                                }
+                            }
+                        }
+                    }
+                    if (!empty($extras = $this->getSchemaVirtualRelationships($tableSchema->name))) {
+                        foreach ($extras as $extra) {
+                            $refService = null;
+                            $junctionService = null;
+                            $si = array_get($extra, 'ref_service_id');
+                            if ($this->getServiceId() !== $si) {
+                                $refService = ServiceManager::getServiceNameById($si);
+                            }
+                            $si = array_get($extra, 'junction_service_id');
+                            if (!empty($si) && ($this->getServiceId() !== $si)) {
+                                $junctionService = ServiceManager::getServiceNameById($si);
+                            }
+                            $extra['name'] = RelationSchema::buildName(
+                                array_get($extra, 'type'),
+                                array_get($extra, 'field'),
+                                $refService,
+                                array_get($extra, 'ref_table'),
+                                array_get($extra, 'ref_field'),
+                                $junctionService,
+                                array_get($extra, 'junction_table')
+                            );
+                            $relation = new RelationSchema($extra);
+                            $relation->isVirtual = true;
+                            $tableSchema->addRelation($relation);
+                        }
+                    }
+                    if (!empty($extras = $this->getSchemaExtrasForRelated($tableSchema->name))) {
+                        foreach ($extras as $extra) {
+                            if (!empty($relatedName = array_get($extra, 'relationship'))) {
+                                if (null !== $relationship = $tableSchema->getRelation($relatedName)) {
+                                    $relationship->fill($extra);
+                                    if (isset($extra['always_fetch']) && $extra['always_fetch']) {
+                                        $tableSchema->fetchRequiresRelations = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    $this->parent->addToCache($cacheKey, $tableSchema, true);
+                }
+            }
         }
 
-        if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
-            // until view gets its own resource
-            return $this->parent->getSchema()->getResource(DbResourceTypes::TYPE_VIEW, $name, $refresh);
-        }
-
-        return null;
+        return $result;
     }
 
     /**
@@ -852,7 +1005,7 @@ class DbSchemaResource extends BaseDbResource
             }
         }
 
-        $result = $this->parent->getSchema()->updateSchema($tables, !$check_exist);
+        $result = $this->updateSchema($tables, !$check_exist);
 
         //  Any changes here should refresh cached schema
         $this->refreshCachedTables();
@@ -879,7 +1032,7 @@ class DbSchemaResource extends BaseDbResource
         $properties['name'] = $table;
 
         $tables = static::validateAsArray($properties, null, true, 'Bad data format in request.');
-        $result = $this->parent->getSchema()->updateSchema($tables, !$check_exist);
+        $result = $this->updateSchema($tables, !$check_exist);
         $result = array_get($result, 0, []);
 
         //  Any changes here should refresh cached schema
@@ -940,7 +1093,7 @@ class DbSchemaResource extends BaseDbResource
         $fields = static::validateAsArray($properties, null, true, 'Bad data format in request.');
 
         $tables = [['name' => $table, 'field' => $fields]];
-        $result = $this->parent->getSchema()->updateSchema($tables, !$check_exist);
+        $result = $this->updateSchema($tables, !$check_exist);
         $result = array_get(array_get($result, 0, []), 'field', []);
 
         //  Any changes here should refresh cached schema
@@ -1006,7 +1159,7 @@ class DbSchemaResource extends BaseDbResource
         $fields = static::validateAsArray($properties, null, true, 'Bad data format in request.');
 
         $tables = [['name' => $table, 'related' => $fields]];
-        $result = $this->parent->getSchema()->updateSchema($tables, !$check_exist);
+        $result = $this->updateSchema($tables, !$check_exist);
         $result = array_get(array_get($result, 0, []), 'related', []);
 
         //  Any changes here should refresh cached schema
@@ -1044,7 +1197,7 @@ class DbSchemaResource extends BaseDbResource
             }
         }
 
-        $result = $this->parent->getSchema()->updateSchema($tables, true, $allow_delete_fields);
+        $result = $this->updateSchema($tables, true, $allow_delete_fields);
 
         //  Any changes here should refresh cached schema
         $this->refreshCachedTables();
@@ -1074,7 +1227,7 @@ class DbSchemaResource extends BaseDbResource
 
         $tables = static::validateAsArray($properties, null, true, 'Bad data format in request.');
 
-        $result = $this->parent->getSchema()->updateSchema($tables, true, $allow_delete_fields);
+        $result = $this->updateSchema($tables, true, $allow_delete_fields);
         $result = array_get($result, 0, []);
 
         //  Any changes here should refresh cached schema
@@ -1141,7 +1294,7 @@ class DbSchemaResource extends BaseDbResource
         $fields = static::validateAsArray($properties, null, true, 'Bad data format in request.');
 
         $tables = [['name' => $table, 'field' => $fields]];
-        $result = $this->parent->getSchema()->updateSchema($tables, true, false);
+        $result = $this->updateSchema($tables, true, false);
         $result = array_get(array_get($result, 0, []), 'field', []);
 
         //  Any changes here should refresh cached schema
@@ -1213,7 +1366,7 @@ class DbSchemaResource extends BaseDbResource
         $fields = static::validateAsArray($properties, null, true, 'Bad data format in request.');
 
         $tables = [['name' => $table, 'related' => $fields]];
-        $result = $this->parent->getSchema()->updateSchema($tables, true, false);
+        $result = $this->updateSchema($tables, true, false);
         $result = array_get(array_get($result, 0, []), 'related', []);
 
         //  Any changes here should refresh cached schema
@@ -1278,7 +1431,10 @@ class DbSchemaResource extends BaseDbResource
             // todo exist query here
         }
         try {
-            $this->parent->getSchema()->dropResource(DbResourceTypes::TYPE_TABLE, $table);
+            if ($resource = $this->getTableSchema($table)) {
+                $this->parent->getSchema()->dropTable($resource->quotedName);
+                $this->tablesDropped($table);
+            }
         } catch (\Exception $ex) {
             \Log::error('Exception dropping table: ' . $ex->getMessage());
 
@@ -1340,7 +1496,13 @@ class DbSchemaResource extends BaseDbResource
         }
 
         try {
-            $this->parent->getSchema()->dropResource(DbResourceTypes::TYPE_TABLE_FIELD, [$table, $field]);
+            $tableSchema = $this->getTableSchema($table);
+            if ($resource = $tableSchema->getColumn($field)) {
+                if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_TABLE_FIELD) && !$resource->isVirtual) {
+                    $this->parent->getSchema()->dropColumns($tableSchema->quotedName, $resource->quotedName);
+                }
+                $this->fieldsDropped($table, $field);
+            }
         } catch (\Exception $ex) {
             error_log($ex->getMessage());
             throw $ex;
@@ -1401,7 +1563,15 @@ class DbSchemaResource extends BaseDbResource
         }
 
         try {
-            $this->parent->getSchema()->dropResource(DbResourceTypes::TYPE_TABLE_RELATIONSHIP, [$table, $relationship]);
+            $tableSchema = $this->getTableSchema($table);
+            if ($resource = $tableSchema->getRelation($relationship)) {
+                if ($resource->isVirtual) {
+                    $this->removeSchemaVirtualRelationships($table, [$resource->toArray()]);
+                } else {
+                    $this->parent->getSchema()->dropRelationship($tableSchema->quotedName, $resource);
+                }
+                $this->removeSchemaExtrasForRelated($table, $relationship);
+            }
         } catch (\Exception $ex) {
             error_log($ex->getMessage());
             throw $ex;
@@ -1440,15 +1610,15 @@ class DbSchemaResource extends BaseDbResource
      */
     public function doesTableExist($name, $returnName = false)
     {
-        if (false !== $result = $this->parent->getSchema()->doesResourceExist(DbResourceTypes::TYPE_TABLE, $name,
-                $returnName)
-        ) {
-            return $result;
+        if (empty($name)) {
+            throw new \InvalidArgumentException('Table name cannot be empty.');
         }
 
-        if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
-            // temporary until view gets its own resource
-            return $this->parent->getSchema()->doesResourceExist(DbResourceTypes::TYPE_VIEW, $name, $returnName);
+        $tables = $this->getTableNames();
+        //	Search normal, return real name
+        $ndx = strtolower($name);
+        if (isset($tables[$ndx])) {
+            return $returnName ? $tables[$ndx]->name : true;
         }
 
         return false;
@@ -1532,6 +1702,789 @@ class DbSchemaResource extends BaseDbResource
         }
 
         return $out;
+    }
+
+    /**
+     * @param      $tables
+     * @param bool $allow_merge
+     * @param bool $allow_delete
+     * @param bool $rollback
+     *
+     * @return array
+     * @throws \Exception
+     */
+    public function updateSchema($tables, $allow_merge = false, $allow_delete = false, $rollback = false)
+    {
+        if (!is_array($tables) || empty($tables)) {
+            throw new \Exception('There are no table sets in the request.');
+        }
+
+        if (!isset($tables[0])) {
+            // single record possibly passed in without wrapper array
+            $tables = [$tables];
+        }
+
+        $created = [];
+        $references = [];
+        $indexes = [];
+        $out = [];
+        $tableExtras = [];
+        $fieldExtras = [];
+        $fieldDrops = [];
+        $relatedExtras = [];
+        $relatedDrops = [];
+        $virtualRelations = [];
+        $virtualRelationDrops = [];
+        $count = 0;
+        $singleTable = (1 == count($tables));
+        $schema = $this->parent->getSchema();
+
+        foreach ($tables as $table) {
+            try {
+                if (empty($tableName = array_get($table, 'name'))) {
+                    throw new \Exception('Table name missing from schema.');
+                }
+
+                //	Does it already exist
+                if ($tableSchema = $this->getTableSchema($tableName)) {
+                    if (!$allow_merge) {
+                        throw new \Exception("A table with name '$tableName' already exist in the database.");
+                    }
+
+                    \Log::debug('Schema update: ' . $tableName);
+
+                    $results = [];
+                    if (!empty($fields = array_get($table, 'field'))) {
+                        $results = $this->buildTableFields($tableSchema, $fields, true, $allow_delete);
+                    }
+                    if (!empty($related = array_get($table, 'related'))) {
+                        $related = $this->buildTableRelated($tableSchema, $related, true, $allow_delete);
+                        $results = array_merge($results, $related);
+                    }
+
+                    $schema->updateTable($tableSchema, array_merge($table, $results));
+                } else {
+                    \Log::debug('Creating table: ' . $tableName);
+
+                    $results = [];
+                    if (!empty($fields = array_get($table, 'field'))) {
+                        $results = $this->createTableFields($tableName, $fields);
+                    }
+                    if (!empty($related = array_get($table, 'related'))) {
+                        $temp = $this->createTableRelated($tableName, $related);
+                        $results = array_merge($results, $temp);
+                    }
+
+                    $schema->createTable($table, $results);
+
+                    if (!$singleTable && $rollback) {
+                        $created[] = $tableName;
+                    }
+                }
+
+                if (!empty($results['commands'])) {
+                    foreach ($results['commands'] as $extraCommand) {
+                        try {
+                            $this->parent->getConnection()->statement($extraCommand);
+                        } catch (\Exception $ex) {
+                            // oh well, we tried.
+                        }
+                    }
+                }
+
+                // add table extras
+                $extras = array_only($table, ['label', 'plural', 'alias', 'description', 'name_field']);
+                if (!empty($extras)) {
+                    $extras['table'] = $tableName;
+                    $tableExtras[] = $extras;
+                }
+
+                $fieldExtras = array_merge($fieldExtras, (array)array_get($results, 'extras'));
+                $fieldDrops = array_merge($fieldDrops, (array)array_get($results, 'drop_extras'));
+                $references = array_merge($references, (array)array_get($results, 'references'));
+                $indexes = array_merge($indexes, (array)array_get($results, 'indexes'));
+                $relatedExtras = array_merge($relatedExtras, (array)array_get($results, 'related_extras'));
+                $relatedDrops = array_merge($relatedDrops, (array)array_get($results, 'drop_related_extras'));
+                $virtualRelations = array_merge($virtualRelations, (array)array_get($results, 'virtual_relations'));
+                $virtualRelationDrops = array_merge($virtualRelationDrops,
+                    (array)array_get($results, 'drop_virtual_relations'));
+
+                $out[$count] = ['name' => $tableName];
+            } catch (\Exception $ex) {
+                if ($rollback || $singleTable) {
+                    //  Delete any created tables
+                    throw $ex;
+                }
+
+                $out[$count] = [
+                    'error' => [
+                        'message' => $ex->getMessage(),
+                        'code'    => $ex->getCode()
+                    ]
+                ];
+            }
+
+            $count++;
+        }
+
+        if (!empty($references)) {
+            $schema->createFieldReferences($references);
+        }
+        if (!empty($indexes)) {
+            $schema->createFieldIndexes($indexes);
+        }
+        if (!empty($tableExtras)) {
+            $this->setSchemaTableExtras($tableExtras);
+        }
+        if (!empty($fieldExtras)) {
+            $this->setSchemaFieldExtras($fieldExtras);
+        }
+        if (!empty($fieldDrops)) {
+            foreach ($fieldDrops as $table => $dropped) {
+                $this->removeSchemaExtrasForFields($table, $dropped);
+            }
+        }
+        if (!empty($relatedExtras)) {
+            $this->setSchemaRelatedExtras($relatedExtras);
+        }
+        if (!empty($relatedDrops)) {
+            foreach ($relatedDrops as $table => $dropped) {
+                $this->removeSchemaExtrasForRelated($table, $dropped);
+            }
+        }
+        if (!empty($virtualRelations)) {
+            $this->setSchemaVirtualRelationships($virtualRelations);
+        }
+        if (!empty($virtualRelationDrops)) {
+            foreach ($virtualRelationDrops as $table => $dropped) {
+                $this->removeSchemaVirtualRelationships($table, $dropped);
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param string $table_name
+     * @param array  $fields
+     *
+     * @throws \Exception
+     * @return array
+     */
+    protected function createTableFields($table_name, $fields)
+    {
+        if (!is_array($fields) || empty($fields)) {
+            throw new \Exception('There are no fields in the requested schema.');
+        }
+
+        if (!isset($fields[0])) {
+            // single record possibly passed in without wrapper array
+            $fields = [$fields];
+        }
+
+        $schema = $this->parent->getSchema();
+
+        $internalTableName = $table_name;
+        if ((false === strpos($table_name, '.')) && !empty($namingSchema = $schema->getNamingSchema())) {
+            $internalTableName = $namingSchema . '.' . $table_name;
+        }
+        $columns = [];
+        $references = [];
+        $indexes = [];
+        $extras = [];
+        $commands = [];
+        foreach ($fields as $field) {
+            $this->cleanClientField($field);
+            $name = array_get($field, 'name');
+
+            // clean out extras
+            $extraNew = array_only($field, $this->fieldExtras);
+            $field = array_except($field, $this->fieldExtras);
+
+            $type = strtolower((string)array_get($field, 'type'));
+            if (!$schema->supportsResourceType(DbResourceTypes::TYPE_TABLE_FIELD) ||
+                array_get($extraNew, 'is_virtual', false)
+            ) {
+                // no need to build what the db doesn't support, use extras and bail
+                $extraNew['extra_type'] = $type;
+            } else {
+                if ($schema->isUndiscoverableType($type)) {
+                    $extraNew['extra_type'] = $type;
+                }
+
+                $result = $this->buildTableField($internalTableName, $field);
+                $commands = array_merge($commands, (array)array_get($result, 'commands'));
+                $references = array_merge($references, (array)array_get($result, 'references'));
+                $indexes = array_merge($indexes, (array)array_get($result, 'indexes'));
+
+                $columns[$name] = $field;
+            }
+
+            if (!empty($extraNew)) {
+                $extraNew['table'] = $table_name;
+                $extraNew['field'] = $name;
+                $extras[] = $extraNew;
+            }
+        }
+
+        return [
+            'columns'    => $columns,
+            'references' => $references,
+            'indexes'    => $indexes,
+            'extras'     => $extras,
+            'commands'   => $commands,
+        ];
+    }
+
+    /**
+     * @param TableSchema $table_schema
+     * @param array       $fields
+     * @param bool        $allow_update
+     * @param bool        $allow_delete
+     *
+     * @throws \Exception
+     * @return array
+     */
+    protected function buildTableFields(
+        $table_schema,
+        $fields,
+        $allow_update = false,
+        $allow_delete = false
+    ) {
+        if (!is_array($fields) || empty($fields)) {
+            throw new \Exception('There are no fields in the requested schema.');
+        }
+
+        if (!isset($fields[0])) {
+            // single record possibly passed in without wrapper array
+            $fields = [$fields];
+        }
+
+        $schema = $this->parent->getSchema();
+        $columns = [];
+        $alterColumns = [];
+        $dropColumns = [];
+        $references = [];
+        $indexes = [];
+        $extras = [];
+        $dropExtras = [];
+        $commands = [];
+        $internalTableName = $table_schema->internalName;
+        foreach ($fields as $field) {
+            $this->cleanClientField($field);
+            $name = array_get($field, 'name');
+
+            /** @type ColumnSchema $oldField */
+            if ($oldField = $table_schema->getColumn($name)) {
+                // UPDATE
+                if (!$allow_update) {
+                    throw new \Exception("Field '$name' already exists in table '{$table_schema->name}'.");
+                }
+
+                $oldArray = $oldField->toArray();
+                $diffFields = array_diff($this->fieldExtras, ['picklist', 'validation', 'db_function']);
+                $extraNew = array_diff_assoc(array_only($field, $diffFields), array_only($oldArray, $diffFields));
+
+                if (array_key_exists('picklist', $field)) {
+                    $picklist = (array)array_get($field, 'picklist');
+                    $oldPicklist = (array)$oldField->picklist;
+                    if ((count($picklist) !== count($oldPicklist)) ||
+                        !empty(array_diff($picklist, $oldPicklist)) ||
+                        !empty(array_diff($oldPicklist, $picklist))
+                    ) {
+                        $extraNew['picklist'] = $picklist;
+                    }
+                }
+
+                if (array_key_exists('validation', $field)) {
+                    $validation = (array)array_get($field, 'validation');
+                    $oldValidation = (array)$oldField->validation;
+                    if (json_encode($validation) !== json_encode($oldValidation)) {
+                        $extraNew['validation'] = $validation;
+                    }
+                }
+
+                if (array_key_exists('db_function', $field)) {
+                    $dbFunction = (array)array_get($field, 'db_function');
+                    $oldFunction = (array)$oldField->dbFunction;
+                    if (json_encode($dbFunction) !== json_encode($oldFunction)) {
+                        $extraNew['db_function'] = $dbFunction;
+                    }
+                }
+
+                // clean out extras
+                $noDiff = array_merge($this->fieldExtras, ['default', 'native']);
+                $settingsNew = array_diff_assoc(array_except($field, $noDiff), array_except($oldArray, $noDiff));
+
+                // may be an array due to expressions
+                if (array_key_exists('default', $settingsNew)) {
+                    $default = $settingsNew['default'];
+                    if ($default !== $oldField->defaultValue) {
+                        $settingsNew['default'] = $default;
+                    }
+                }
+                if (array_key_exists('native', $settingsNew)) {
+                    $native = $settingsNew['native'];
+                    if ($native !== $oldField->native) {
+                        $settingsNew['native'] = $native;
+                    }
+                }
+
+                // if empty, nothing to do here, check extras
+                if (empty($settingsNew)) {
+                    if (!empty($extraNew)) {
+                        $extraNew['table'] = $table_schema->name;
+                        $extraNew['field'] = $name;
+                        $extras[] = $extraNew;
+                    }
+
+                    continue;
+                }
+
+                $type = strtolower((string)array_get($field, 'type'));
+                if (!$schema->supportsResourceType(DbResourceTypes::TYPE_TABLE_FIELD) ||
+                    array_get($extraNew, 'is_virtual', false) || $oldField->isVirtual
+                ) {
+                    if (!$oldField->isVirtual) {
+                        throw new \Exception("Field '$name' already exists as non-virtual in table '{$table_schema->name}'.");
+                    }
+                    // no need to build what the db doesn't support, use extras and bail
+                    $extraNew['extra_type'] = $type;
+                } else {
+                    if ($schema->isUndiscoverableType($type)) {
+                        $extraNew['extra_type'] = $type;
+                    }
+
+                    $result = $this->buildTableField($internalTableName, $field, true, $oldField);
+                    $commands = array_merge($commands, (array)array_get($result, 'commands'));
+                    $references = array_merge($references, (array)array_get($result, 'references'));
+                    $indexes = array_merge($indexes, (array)array_get($result, 'indexes'));
+
+                    $alterColumns[$name] = $field;
+                }
+            } else {
+                // CREATE
+
+                // clean out extras
+                $extraNew = array_only($field, $this->fieldExtras);
+                $field = array_except($field, $this->fieldExtras);
+
+                $type = strtolower((string)array_get($field, 'type'));
+                if (!$schema->supportsResourceType(DbResourceTypes::TYPE_TABLE_FIELD) ||
+                    array_get($extraNew, 'is_virtual', false)
+                ) {
+                    // no need to build what the db doesn't support, use extras and bail
+                    $extraNew['extra_type'] = $type;
+                } else {
+                    if ($schema->isUndiscoverableType($type)) {
+                        $extraNew['extra_type'] = $type;
+                    }
+
+                    $result = $this->buildTableField($internalTableName, $field, true);
+                    $commands = array_merge($commands, (array)array_get($result, 'commands'));
+                    $references = array_merge($references, (array)array_get($result, 'references'));
+                    $indexes = array_merge($indexes, (array)array_get($result, 'indexes'));
+
+                    $columns[$name] = $field;
+                }
+            }
+
+            if (!empty($extraNew)) {
+                $extraNew['table'] = $table_schema->name;
+                $extraNew['field'] = $name;
+                $extras[] = $extraNew;
+            }
+        }
+
+        if ($allow_delete) {
+            // check for columns to drop
+            /** @type  ColumnSchema $oldField */
+            foreach ($table_schema->getColumns() as $oldField) {
+                $found = false;
+                foreach ($fields as $field) {
+                    $field = array_change_key_case($field, CASE_LOWER);
+                    if (array_get($field, 'name') === $oldField->name) {
+                        $found = true;
+                    }
+                }
+                if (!$found) {
+                    if ($schema->supportsResourceType(DbResourceTypes::TYPE_TABLE_FIELD) && !$oldField->isVirtual) {
+                        $dropColumns[] = $oldField->name;
+                    }
+                    $dropExtras[$table_schema->name][] = $oldField->name;
+                }
+            }
+        }
+
+        return [
+            'columns'       => $columns,
+            'alter_columns' => $alterColumns,
+            'drop_columns'  => $dropColumns,
+            'references'    => $references,
+            'indexes'       => $indexes,
+            'extras'        => $extras,
+            'drop_extras'   => $dropExtras,
+            'commands'      => $commands,
+        ];
+    }
+
+    /**
+     * @param string       $tableName
+     * @param array        $field
+     * @param bool         $oldTable
+     * @param ColumnSchema $oldField
+     *
+     * @return array
+     * @throws \Exception
+     */
+    protected function buildTableField($tableName, $field, $oldTable = false, $oldField = null)
+    {
+        $name = array_get($field, 'name');
+        $type = strtolower((string)array_get($field, 'type'));
+        $commands = [];
+        $indexes = [];
+        $references = [];
+        $schema = $this->parent->getSchema();
+        switch ($type) {
+            case DbSimpleTypes::TYPE_ID:
+                $pkExtras = $schema->getPrimaryKeyCommands($tableName, $name);
+                $commands = array_merge($commands, $pkExtras);
+                break;
+        }
+
+        if (((DbSimpleTypes::TYPE_REF == $type) || array_get($field, 'is_foreign_key'))) {
+            // special case for references because the table referenced may not be created yet
+            if (empty($refTable = array_get($field, 'ref_table'))) {
+                throw new \Exception("Invalid schema detected - no table element for reference type of $name.");
+            }
+
+            if ((false === strpos($refTable, '.')) && !empty($namingSchema = $schema->getNamingSchema())) {
+                $refTable = $namingSchema . '.' . $refTable;
+            }
+            $refColumns = array_get($field, 'ref_field', array_get($field, 'ref_fields'));
+            $refOnDelete = array_get($field, 'ref_on_delete');
+            $refOnUpdate = array_get($field, 'ref_on_update');
+
+            if ($schema->allowsSeparateForeignConstraint()) {
+                if (!isset($oldField) || !$oldField->isForeignKey) {
+                    // will get to it later, $refTable may not be there
+                    $keyName = $schema->makeConstraintName('fk', $tableName, $name);
+                    $references[] = [
+                        'name'      => $keyName,
+                        'table'     => $tableName,
+                        'column'    => $name,
+                        'ref_table' => $refTable,
+                        'ref_field' => $refColumns,
+                        'delete'    => $refOnDelete,
+                        'update'    => $refOnUpdate,
+                    ];
+                }
+            }
+        }
+
+        // regardless of type
+        if (array_get($field, 'is_unique')) {
+            if ($schema->requiresCreateIndex(true, !$oldTable)) {
+                // will get to it later, create after table built
+                $keyName = $schema->makeConstraintName('undx', $tableName, $name);
+                $indexes[] = [
+                    'name'   => $keyName,
+                    'table'  => $tableName,
+                    'column' => $name,
+                    'unique' => true,
+                    'drop'   => isset($oldField),
+                ];
+            }
+        } elseif (array_get($field, 'is_index')) {
+            if ($schema->requiresCreateIndex($oldTable, !$oldTable)) {
+                // will get to it later, create after table built
+                $keyName = $schema->makeConstraintName('ndx', $tableName, $name);
+                $indexes[] = [
+                    'name'   => $keyName,
+                    'table'  => $tableName,
+                    'column' => $name,
+                    'drop'   => isset($oldField),
+                ];
+            }
+        }
+
+        return ['field' => $field, 'commands' => $commands, 'references' => $references, 'indexes' => $indexes];
+    }
+
+    /**
+     * @param string $table_name
+     * @param array  $related
+     *
+     * @throws \Exception
+     * @return array
+     */
+    public function createTableRelated($table_name, $related)
+    {
+        if (!is_array($related) || empty($related)) {
+            return [];
+        }
+
+        if (!isset($related[0])) {
+            // single record possibly passed in without wrapper array
+            $related = [$related];
+        }
+
+        $extra = [];
+        $virtual = [];
+        foreach ($related as $relation) {
+            $this->cleanClientRelation($relation);
+            // clean out extras
+            $extraNew = array_only($relation, $this->relatedExtras);
+            if (!empty($extraNew['alias']) || !empty($extraNew['label']) || !empty($extraNew['description']) ||
+                !empty($extraNew['always_fetch']) || !empty($extraNew['flatten']) ||
+                !empty($extraNew['flatten_drop_prefix'])
+            ) {
+                $extraNew['table'] = $table_name;
+                $extraNew['relationship'] = array_get($relation, 'name');
+                $extra[] = $extraNew;
+            }
+
+            // only virtual
+            if (boolval(array_get($relation, 'is_virtual'))) {
+                $relation = array_except($relation, $this->relatedExtras);
+                $relation['table'] = $table_name;
+                $virtual[] = $relation;
+            } else {
+                // todo create foreign keys here eventually as well?
+            }
+        }
+
+        return [
+            'related_extras'    => $extra,
+            'virtual_relations' => $virtual,
+        ];
+    }
+
+    /**
+     * @param TableSchema $table_schema
+     * @param array       $related
+     * @param bool        $allow_update
+     * @param bool        $allow_delete
+     *
+     * @throws \Exception
+     * @return array
+     */
+    public function buildTableRelated(
+        $table_schema,
+        $related,
+        $allow_update = false,
+        $allow_delete = false
+    ) {
+        if (!is_array($related) || empty($related)) {
+            throw new \Exception('There are no related elements in the requested schema.');
+        }
+
+        if (!isset($related[0])) {
+            // single record possibly passed in without wrapper array
+            $related = [$related];
+        }
+
+        $extras = [];
+        $dropExtras = [];
+        $virtuals = [];
+        $dropVirtuals = [];
+        foreach ($related as $relation) {
+            $this->cleanClientRelation($relation);
+            $name = array_get($relation, 'name');
+
+            /** @type RelationSchema $oldRelation */
+            if ($oldRelation = $table_schema->getRelation($name)) {
+                // UPDATE
+                if (!$allow_update) {
+                    throw new \Exception("Relation '$name' already exists in table '{$table_schema->name}'.");
+                }
+
+                $oldArray = $oldRelation->toArray();
+                $extraNew = array_only($relation, $this->relatedExtras);
+                $extraOld = array_only($oldArray, $this->relatedExtras);
+                if (!empty($extraNew = array_diff_assoc($extraNew, $extraOld))) {
+                    // if all empty, delete the extras entry, otherwise update
+                    $combined = array_merge($extraOld, $extraNew);
+                    if (!empty($combined['alias']) || !empty($combined['label']) || !empty($combined['description']) ||
+                        !empty($combined['always_fetch']) || !empty($combined['flatten']) ||
+                        !empty($combined['flatten_drop_prefix'])
+                    ) {
+                        $extraNew['table'] = $table_schema->name;
+                        $extraNew['relationship'] = array_get($relation, 'name');
+                        $extras[] = $extraNew;
+                    } else {
+                        $dropExtras[$table_schema->name][] = $oldRelation->name;
+                    }
+                }
+
+                // only virtual
+                if (boolval(array_get($relation, 'is_virtual'))) {
+                    // clean out extras
+                    $noDiff = array_merge($this->relatedExtras, ['native']);
+                    $relation = array_except($relation, $noDiff);
+                    if (!empty(array_diff_assoc($relation, array_except($oldArray, $noDiff)))) {
+                        $relation['table'] = $table_schema->name;
+                        $virtuals[] = $relation;
+                    }
+                }
+            } else {
+                // CREATE
+                // clean out extras
+                $extraNew = array_only($relation, $this->relatedExtras);
+                if (!empty($extraNew['alias']) || !empty($extraNew['label']) || !empty($extraNew['description']) ||
+                    !empty($extraNew['always_fetch']) || !empty($extraNew['flatten']) ||
+                    !empty($extraNew['flatten_drop_prefix'])
+                ) {
+                    $extraNew['table'] = $table_schema->name;
+                    $extraNew['relationship'] = array_get($relation, 'name');
+                    $extras[] = $extraNew;
+                }
+
+                // only virtual
+                if (boolval(array_get($relation, 'is_virtual'))) {
+                    $relation = array_except($relation, $this->relatedExtras);
+                    $relation['table'] = $table_schema->name;
+                    $virtuals[] = $relation;
+                }
+            }
+        }
+
+        if ($allow_delete && isset($oldSchema)) {
+            // check for relations to drop
+            /** @type RelationSchema $oldField */
+            foreach ($oldSchema->getRelations() as $oldRelation) {
+                $found = false;
+                foreach ($related as $relation) {
+                    $relation = array_change_key_case($relation, CASE_LOWER);
+                    if (array_get($relation, 'name') === $oldRelation->name) {
+                        $found = true;
+                    }
+                }
+                if (!$found) {
+                    if ($oldRelation->isVirtual) {
+                        $dropVirtuals[$table_schema->name][] = $oldRelation->toArray();
+                    } else {
+                        $dropExtras[$table_schema->name][] = $oldRelation->name;
+                    }
+                }
+            }
+        }
+
+        return [
+            'related_extras'         => $extras,
+            'drop_related_extras'    => $dropExtras,
+            'virtual_relations'      => $virtuals,
+            'drop_virtual_relations' => $dropVirtuals,
+        ];
+    }
+
+    protected function cleanClientField(array &$field)
+    {
+        $field = array_change_key_case($field, CASE_LOWER);
+        if (empty($name = array_get($field, 'name'))) {
+            throw new \Exception("Invalid schema detected - no name element.");
+        }
+        if (!empty($label = array_get($field, 'label'))) {
+            if ($label === camelize($name, '_', true)) {
+                unset($field['label']); // no need to create an entry just for the same label
+            }
+        }
+
+        $picklist = array_get($field, 'picklist');
+        if (!empty($picklist) && !is_array($picklist)) {
+            // accept comma delimited from client side
+            $field['picklist'] = array_map('trim', explode(',', trim($picklist, ',')));
+        }
+
+        // make sure we have boolean values, not integers or strings
+        $booleanFieldNames = [
+            'allow_null',
+            'fixed_length',
+            'supports_multibyte',
+            'auto_increment',
+            'is_unique',
+            'is_index',
+            'is_primary_key',
+            'is_foreign_key',
+            'is_virtual',
+            'is_aggregate',
+        ];
+        foreach ($booleanFieldNames as $name) {
+            if (isset($field[$name])) {
+                $field[$name] = boolval($field[$name]);
+            }
+        }
+
+        // tighten up type info
+        if (isset($field['type'])) {
+            $type = strtolower((string)array_get($field, 'type'));
+            switch ($type) {
+                case 'pk':
+                    $type = DbSimpleTypes::TYPE_ID;
+                    break;
+                case 'fk':
+                    $type = DbSimpleTypes::TYPE_REF;
+                    break;
+                case 'virtual':
+                    // upgrade old virtual field definitions
+                    $field['is_virtual'] = true;
+                    if (!empty($functionInfo = array_get($field, 'db_function'))) {
+                        $type = array_get($functionInfo, 'type', DbSimpleTypes::TYPE_STRING);
+                        if ($function = array_get($functionInfo, 'function')) {
+                            $field['db_function'] = [
+                                [
+                                    'use'           => [DbFunctionUses::SELECT],
+                                    'function'      => $function,
+                                    'function_type' => FunctionTypes::DATABASE,
+                                ]
+                            ];
+                        }
+                        if ($aggregate = array_get($functionInfo, 'aggregate')) {
+                            $field['is_aggregate'] = $aggregate;
+                        }
+                    }
+                    break;
+            }
+            $field['type'] = $type;
+        }
+    }
+
+    protected function cleanClientRelation(array &$relation)
+    {
+        $relation = array_change_key_case($relation, CASE_LOWER);
+        // make sure we have boolean values, not integers or strings
+        $booleanFieldNames = [
+            'is_virtual',
+            'always_fetch',
+            'flatten',
+            'flatten_drop_prefix',
+        ];
+        foreach ($booleanFieldNames as $name) {
+            if (isset($relation[$name])) {
+                $relation[$name] = boolval($relation[$name]);
+            }
+        }
+
+        if (boolval(array_get($relation, 'is_virtual'))) {
+            // tighten up type info
+            if (isset($relation['type'])) {
+                $type = strtolower((string)array_get($relation, 'type', ''));
+                switch ($type) {
+                    case RelationSchema::BELONGS_TO:
+                    case RelationSchema::HAS_MANY:
+                    case RelationSchema::MANY_MANY:
+                        $relation['type'] = $type;
+                        break;
+                    default:
+                        throw new \Exception("Invalid schema detected - invalid or missing type element.");
+                        break;
+                }
+            }
+        } else {
+            if (empty(array_get($relation, 'name'))) {
+                throw new \Exception("Invalid schema detected - no name element.");
+            }
+        }
     }
 
     /**
@@ -2170,7 +3123,7 @@ class DbSchemaResource extends BaseDbResource
                     'summary'     => 'describe' .
                         $capitalized .
                         'Relationship() - Retrieve the definition of the given relationship for the given table.',
-                    'operationId' => 'describe' . $capitalized . 'Field',
+                    'operationId' => 'describe' . $capitalized . 'Relationship',
                     'parameters'  => [
                         [
                             'name'        => 'refresh',
@@ -2283,7 +3236,7 @@ class DbSchemaResource extends BaseDbResource
                     'summary'     => 'describe' .
                         $capitalized .
                         'Field() - Retrieve the definition of the given field for the given table. DEPRECATED',
-                    'operationId' => 'describe' . $capitalized . 'Field',
+                    'operationId' => 'describe' . $capitalized . 'FieldDeprecated',
                     'parameters'  => [
                         [
                             'name'        => 'refresh',
@@ -2307,7 +3260,7 @@ class DbSchemaResource extends BaseDbResource
                 'put'        => [
                     'tags'        => [$serviceName],
                     'summary'     => 'replace' . $capitalized . 'Field() - Update one field by identifier. DEPRECATED',
-                    'operationId' => 'replace' . $capitalized . 'Field',
+                    'operationId' => 'replace' . $capitalized . 'FieldDeprecated',
                     'parameters'  => [
                         [
                             'name'        => 'properties',
@@ -2332,7 +3285,7 @@ class DbSchemaResource extends BaseDbResource
                 'patch'      => [
                     'tags'        => [$serviceName],
                     'summary'     => 'update' . $capitalized . 'Field() - Update one field by identifier. DEPRECATED',
-                    'operationId' => 'update' . $capitalized . 'Field',
+                    'operationId' => 'update' . $capitalized . 'FieldDeprecated',
                     'parameters'  => [
                         [
                             'name'        => 'properties',
@@ -2359,7 +3312,7 @@ class DbSchemaResource extends BaseDbResource
                     'summary'     => 'delete' .
                         $capitalized .
                         'Field() - Remove the given field from the given table. DEPRECATED',
-                    'operationId' => 'delete' . $capitalized . 'Field',
+                    'operationId' => 'delete' . $capitalized . 'FieldDeprecated',
                     'parameters'  => [],
                     'responses'   => [
                         '200'     => [
@@ -2402,7 +3355,7 @@ class DbSchemaResource extends BaseDbResource
         ];
 
         $base['paths'] = array_merge($base['paths'], $apis);
-        $base['definitions'] = array_merge($base['definitions'], $models);
+        $base['definitions'] = array_merge($base['definitions'], $models, static::getApiDocCommonModels());
 
         return $base;
     }

@@ -2,23 +2,22 @@
 
 namespace DreamFactory\Core\Database\Services;
 
-use DreamFactory\Core\Components\Cacheable;
-use DreamFactory\Core\Database\Components\DbSchemaExtras;
-use DreamFactory\Core\Contracts\CachedInterface;
-use DreamFactory\Core\Contracts\CacheInterface;
 use DreamFactory\Core\Contracts\DbExtrasInterface;
 use DreamFactory\Core\Contracts\SchemaInterface;
-use DreamFactory\Core\Enums\ApiOptions;
-use DreamFactory\Core\Exceptions\InternalServerErrorException;
-use DreamFactory\Core\Exceptions\NotFoundException;
-use DreamFactory\Core\Exceptions\NotImplementedException;
+use DreamFactory\Core\Database\Components\DbSchemaExtras;
 use DreamFactory\Core\Database\Resources\BaseDbResource;
+use DreamFactory\Core\Database\Resources\BaseDbTableResource;
+use DreamFactory\Core\Database\Resources\DbSchemaResource;
+use DreamFactory\Core\Enums\ApiOptions;
+use DreamFactory\Core\Enums\DbResourceTypes;
+use DreamFactory\Core\Exceptions\InternalServerErrorException;
+use DreamFactory\Core\Exceptions\NotImplementedException;
 use DreamFactory\Core\Services\BaseRestService;
 use Illuminate\Database\ConnectionInterface;
 
-abstract class BaseDbService extends BaseRestService implements CachedInterface, CacheInterface, DbExtrasInterface
+abstract class BaseDbService extends BaseRestService implements DbExtrasInterface
 {
-    use DbSchemaExtras, Cacheable;
+    use DbSchemaExtras;
 
     //*************************************************************************
     //	Members
@@ -41,6 +40,19 @@ abstract class BaseDbService extends BaseRestService implements CachedInterface,
      */
     protected $schema;
 
+    protected static $resources = [
+        DbSchemaResource::RESOURCE_NAME    => [
+            'name'       => DbSchemaResource::RESOURCE_NAME,
+            'class_name' => DbSchemaResource::class,
+            'label'      => 'Schema',
+        ],
+        BaseDbTableResource::RESOURCE_NAME => [
+            'name'       => BaseDbTableResource::RESOURCE_NAME,
+            'class_name' => BaseDbTableResource::class,
+            'label'      => 'Tables',
+        ],
+    ];
+
     //*************************************************************************
     //	Methods
     //*************************************************************************
@@ -60,7 +72,6 @@ abstract class BaseDbService extends BaseRestService implements CachedInterface,
         $this->allowUpsert = array_get_bool($this->config, 'allow_upsert');
         $this->cacheEnabled = array_get_bool($this->config, 'cache_enabled');
         $this->cacheTTL = intval(array_get($this->config, 'cache_ttl', \Config::get('df.default_cache_ttl')));
-        $this->cachePrefix = 'service_' . $this->id . ':';
     }
 
     /**
@@ -143,38 +154,20 @@ abstract class BaseDbService extends BaseRestService implements CachedInterface,
             if (!isset($this->schema)) {
                 throw new InternalServerErrorException('Database schema extension has not been initialized.');
             }
+            $this->schema->setServiceId($this->getServiceId());
         }
 
         return $this->schema;
     }
 
-    /**
-     */
-    public function refreshTableCache()
+    public function getSchemas($refresh = false)
     {
-        $this->getSchema()->refresh();
-    }
-
-    /**
-     * {@InheritDoc}
-     */
-    protected function handleResource(array $resources)
-    {
-        try {
-            return parent::handleResource($resources);
-        } catch (NotFoundException $ex) {
-            // If version 1.x, the resource could be a table
-//            if ($this->request->getApiVersion())
-//            {
-//                $resource = $this->instantiateResource( Table::class, [ 'name' => $this->resource ] );
-//                $newPath = $this->resourceArray;
-//                array_shift( $newPath );
-//                $newPath = implode( '/', $newPath );
-//
-//                return $resource->handleRequest( $this->request, $newPath, $this->outputFormat );
-//            }
-
-            throw $ex;
+        if ($refresh || (is_null($result = $this->getFromCache('schemas')))) {
+            /** @type string[] $result */
+            $result = $this->getSchema()->getResourceNames(DbResourceTypes::TYPE_SCHEMA);
+            $this->addToCache('schemas', $result, true);
         }
+
+        return $result;
     }
 }
