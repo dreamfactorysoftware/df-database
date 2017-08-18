@@ -3702,7 +3702,7 @@ abstract class BaseDbTableResource extends BaseDbResource
 
     /**
      * @param array $record
-     * @param array $id_field
+     * @param string|array $id_field
      */
     protected static function removeIds(&$record, $id_field)
     {
