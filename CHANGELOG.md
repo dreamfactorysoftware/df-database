@@ -4,6 +4,12 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2017-08-17
+- Removed direct use of Service model, using ServiceManager
+- Cleaned up connection usage and correcting swagger definition
+- Rework schema interface for database services in order to better control caching
+- Bug fixes for service caching
+
 ## [0.5.1] - 2017-08-01
 ### Fixed
 - Updating a single or multiple fields through _field resource should not be allowed to delete fields.
@@ -53,7 +59,8 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 ## 0.1.0 - 2015-10-24
 First official release working with the new [dreamfactory](https://github.com/dreamfactorysoftware/dreamfactory) project.
 
-[Unreleased]: https://github.com/dreamfactorysoftware/df-database/compare/0.5.1...HEAD
+[Unreleased]: https://github.com/dreamfactorysoftware/df-database/compare/0.6.0...HEAD
+[0.6.0]: https://github.com/dreamfactorysoftware/df-database/compare/0.5.1...0.6.0
 [0.5.1]: https://github.com/dreamfactorysoftware/df-database/compare/0.5.0...0.5.1
 [0.5.0]: https://github.com/dreamfactorysoftware/df-database/compare/0.4.0...0.5.0
 [0.4.0]: https://github.com/dreamfactorysoftware/df-database/compare/0.3.0...0.4.0
