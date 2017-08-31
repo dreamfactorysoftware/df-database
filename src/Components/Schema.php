@@ -2231,6 +2231,10 @@ MYSQL;
                 break;
 
             case 'array':
+            case 'map':
+            case 'set':
+            case 'list':
+            case 'tuple':
                 $value = DbSimpleTypes::TYPE_ARRAY;
                 break;
 
@@ -2260,10 +2264,13 @@ MYSQL;
      */
     public function extractType(ColumnSchema $column, $dbType)
     {
-        $simpleType = strstr($dbType, '(', true);
-        $dbType = strtolower($simpleType ?: $dbType);
+        if (false !== $simpleType = strstr($dbType, '(', true)) {
+        } elseif (false !== $simpleType = strstr($dbType, '<', true)) {
+        } else {
+            $simpleType = $dbType;
+        }
 
-        $column->type = static::extractSimpleType($dbType, $column->size, $column->scale);
+        $column->type = static::extractSimpleType($simpleType, $column->size, $column->scale);
     }
 
     /**
