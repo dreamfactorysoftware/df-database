@@ -1776,6 +1776,15 @@ abstract class BaseDbTableResource extends BaseDbResource
                 $relatedRecords = $record[$name];
                 unset($record[$name]);
                 switch ($relationInfo->type) {
+                    case RelationSchema::HAS_ONE:
+                        $this->assignOneToOne(
+                            $schema,
+                            $record,
+                            $relationInfo,
+                            $relatedRecords,
+                            $allow_delete
+                        );
+                        break;
                     case RelationSchema::HAS_MANY:
                         $this->assignManyToOne(
                             $schema,
@@ -1968,7 +1977,8 @@ abstract class BaseDbTableResource extends BaseDbResource
                                         if ('virtual' === $type) {
                                             $extra['is_virtual'] = true;
                                             if (!empty($functionInfo = array_get($extra, 'db_function'))) {
-                                                $type = $extra['type'] = array_get($functionInfo, 'type', DbSimpleTypes::TYPE_STRING);
+                                                $type = $extra['type'] = array_get($functionInfo, 'type',
+                                                    DbSimpleTypes::TYPE_STRING);
                                                 if ($function = array_get($functionInfo, 'function')) {
                                                     $extra['db_function'] = [
                                                         [
@@ -2150,6 +2160,47 @@ abstract class BaseDbTableResource extends BaseDbResource
                                 }
                                 $data[$ndx][$relationName] = $record;
                                 continue 2; // belongs_to only supports one related per record
+                            }
+                        }
+                    }
+                }
+                break;
+            case RelationSchema::HAS_ONE:
+                $refService = ($this->getServiceId() !== $relation->refServiceId) ?
+                    ServiceManager::getServiceNameById($relation->refServiceId) :
+                    $this->getServiceName();
+                $refSchema = $this->getTableSchema($refService, $relation->refTable);
+                $refTable = $refSchema->getName(true);
+                if (empty($refField = $refSchema->getColumn($relation->refField))) {
+                    throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '{$relation->refField} not found.");
+                }
+
+                // check for access
+                Session::checkServicePermission(Verbs::GET, $refService, '_table/' . $refTable);
+
+                // Get records
+                $refFieldName = $refField->getName(true);
+                $extras[ApiOptions::FILTER] = "($refFieldName IN (" . implode(',', $values) . '))';
+                $fields = array_get($extras, 'fields');
+                if ($removeLater = static::addToFields($fields, $refFieldName)) {
+                    $extras['fields'] = $fields;
+                }
+                $relatedRecords = $this->retrieveVirtualRecords($refService, '_table/' . $refTable, $extras);
+
+                // Map the records back to data
+                if (!empty($relatedRecords)) {
+                    foreach ($fieldValues as $ndx => $fieldValue) {
+                        if (empty($fieldValue)) {
+                            continue;
+                        }
+
+                        foreach ($relatedRecords as $record) {
+                            if ($fieldValue === array_get($record, $refFieldName)) {
+                                if ($removeLater) {
+                                    unset($record[$refFieldName]);
+                                }
+                                $data[$ndx][$relationName] = $record;
+                                continue 2; // has_one only supports one related per record
                             }
                         }
                     }
@@ -2364,6 +2415,136 @@ abstract class BaseDbTableResource extends BaseDbResource
             }
         } catch (\Exception $ex) {
             throw new BadRequestException("Failed to update belongs-to assignment.\n{$ex->getMessage()}");
+        }
+    }
+
+    /**
+     * @param TableSchema    $one_table
+     * @param array          $parent_record
+     * @param RelationSchema $relation
+     * @param array          $child_record
+     * @param bool           $allow_delete
+     *
+     * @throws BadRequestException
+     * @return void
+     */
+    protected function assignOneToOne(
+        TableSchema $one_table,
+        $parent_record,
+        RelationSchema $relation,
+        $child_record,
+        $allow_delete = false
+    ) {
+        // update currently only supports one id field
+        if (empty($parent_id = array_get($parent_record, $relation->field))) {
+            throw new BadRequestException("The {$one_table->getName(true)} id can not be empty.");
+        }
+
+        try {
+            $refService = ($this->getServiceId() !== $relation->refServiceId) ?
+                ServiceManager::getServiceNameById($relation->refServiceId) :
+                $this->getServiceName();
+            $refSchema = $this->getTableSchema($refService, $relation->refTable);
+            $refTable = $refSchema->getName(true);
+            if (empty($refField = $refSchema->getColumn($relation->refField))) {
+                throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '{$relation->refField} not found.");
+            }
+
+            if (is_array($refSchema->primaryKey)) {
+                if (1 < count($refSchema->primaryKey)) {
+                    // todo How to handle multiple primary keys?
+                    throw new NotImplementedException("Relating records with multiple field primary keys is not currently supported.");
+                } else {
+                    $pkField = $refSchema->primaryKey[0];
+                }
+            } else {
+                $pkField = $refSchema->primaryKey;
+            }
+            $pkField = $refSchema->getColumn($pkField);
+
+            $pkAutoSet = $pkField->autoIncrement;
+            $pkFieldAlias = $pkField->getName(true);
+            $refFieldAlias = $refField->getName(true);
+            $deleteRelated = (!$refField->allowNull && $allow_delete);
+
+            if (empty($child_record)) {
+                // check for access
+                Session::checkServicePermission(Verbs::GET, $refService, '_table/' . $refTable);
+
+                // Get record
+                $temp = [
+                    ApiOptions::FILTER => $refFieldAlias . ' = ' . $parent_id,
+                    ApiOptions::FIELDS => $pkFieldAlias,
+                ];
+                $matchIds = $this->retrieveVirtualRecords($refService, '_table/' . $refTable, $temp);
+                foreach ($matchIds as $record) {
+                    // disown this child or delete them
+                    if ($deleteRelated) {
+                        $deleteId = array_get($record, $pkFieldAlias);
+                        // destroy linked children that can't stand alone - sounds sinister
+                        $this->deleteForeignRecords($refService, $refSchema, $pkField, [$deleteId]);
+                    } else {
+                        $disownId = array_get($record, $pkFieldAlias);
+                        // disown/un-relate/unlink linked children
+                        $updates = [$refFieldAlias => null];
+                        $this->updateForeignRecordsByIds($refService, $refSchema, $pkField, [$disownId], $updates);
+                    }
+                }
+
+            } else {
+                $id = array_get($child_record, $pkFieldAlias);
+                if (is_null($id)) {
+                    if (!$pkAutoSet) {
+                        throw new BadRequestException("Related record has no primary key value for '$pkFieldAlias'.");
+                    }
+
+                    // create new child record
+                    $child_record[$refFieldAlias] = $parent_id; // assign relationship
+                    $this->createForeignRecords($refService, $refSchema, [$child_record]);
+                } else {
+                    if (array_key_exists($refFieldAlias, $child_record)) {
+                        if (null == array_get($child_record, $refFieldAlias)) {
+                            // disown this child or delete them
+                            if ($deleteRelated) {
+                                // destroy linked children that can't stand alone - sounds sinister
+                                $this->deleteForeignRecords($refService, $refSchema, $pkField, [$id]);
+                            } elseif (count($child_record) > 1) {
+                                $child_record[$refFieldAlias] = null; // assign relationship
+                                $this->updateForeignRecords($refService, $refSchema, $pkField, [$child_record]);
+                            } else {
+                                // disown/un-relate/unlink linked children
+                                $updates = [$refFieldAlias => null];
+                                $this->updateForeignRecordsByIds($refService, $refSchema, $pkField, [$id], $updates);
+                            }
+                        }
+                    }
+
+                    // update or upsert this child
+                    if (count($child_record) > 1) {
+                        $child_record[$refFieldAlias] = $parent_id; // assign relationship
+                        if ($pkAutoSet) {
+                            $this->updateForeignRecords($refService, $refSchema, $pkField, [$child_record]);
+                        } else {
+                            // check for access
+                            Session::checkServicePermission(Verbs::GET, $refService, '_table/' . $refTable);
+
+                            $temp = [ApiOptions::FILTER => $pkFieldAlias . ' = ' . $id];
+                            $matchIds = $this->retrieveVirtualRecords($refService, '_table/' . $refTable, $temp);
+                            if ($found = static::findRecordByNameValue($matchIds, $pkFieldAlias, $id)) {
+                                $this->updateForeignRecords($refService, $refSchema, $pkField, [$child_record]);
+                            } else {
+                                $this->createForeignRecords($refService, $refSchema, [$child_record]);
+                            }
+                        }
+                    } else {
+                        // adopt/relate/link unlinked children
+                        $updates = [$refFieldAlias => $parent_id];
+                        $this->updateForeignRecordsByIds($refService, $refSchema, $pkField, [$id], $updates);
+                    }
+                }
+            }
+        } catch (\Exception $ex) {
+            throw new BadRequestException("Failed to update many to one assignment.\n{$ex->getMessage()}");
         }
     }
 
@@ -3701,7 +3882,7 @@ abstract class BaseDbTableResource extends BaseDbResource
     }
 
     /**
-     * @param array $record
+     * @param array        $record
      * @param string|array $id_field
      */
     protected static function removeIds(&$record, $id_field)

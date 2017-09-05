@@ -2471,6 +2471,7 @@ class DbSchemaResource extends BaseDbResource
                 $type = strtolower((string)array_get($relation, 'type', ''));
                 switch ($type) {
                     case RelationSchema::BELONGS_TO:
+                    case RelationSchema::HAS_ONE:
                     case RelationSchema::HAS_MANY:
                     case RelationSchema::MANY_MANY:
                         $relation['type'] = $type;

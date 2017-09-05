@@ -468,16 +468,37 @@ class Schema implements SchemaInterface
                 $table->addRelation($relation);
             } elseif ((0 == strcasecmp($rtn, $table->resourceName)) && (0 == strcasecmp($rts, $schema))) {
                 $name = ($ts == $defaultSchema) ? $tn : $ts . '.' . $tn;
-                $relation =
-                    new RelationSchema([
-                        'type'           => RelationSchema::HAS_MANY,
-                        'field'          => $rcn,
-                        'ref_service_id' => $this->getServiceId(),
-                        'ref_table'      => $name,
-                        'ref_field'      => $cn,
-                    ]);
+                switch (strtolower((string)array_get($constraint, 'constraint_type'))) {
+                    case 'primary key':
+                    case 'unique':
+                    case 'p':
+                    case 'u':
+                        $relation = new RelationSchema([
+                            'type'           => RelationSchema::HAS_ONE,
+                            'field'          => $rcn,
+                            'ref_service_id' => $this->getServiceId(),
+                            'ref_table'      => $name,
+                            'ref_field'      => $cn,
+                        ]);
+                        break;
+                    default:
+                        $relation = new RelationSchema([
+                            'type'           => RelationSchema::HAS_MANY,
+                            'field'          => $rcn,
+                            'ref_service_id' => $this->getServiceId(),
+                            'ref_table'      => $name,
+                            'ref_field'      => $cn,
+                        ]);
+                        break;
+                }
 
-                $table->addRelation($relation);
+                if ($oldRelation = $table->getRelation($relation->name)){
+                    if (RelationSchema::HAS_ONE !== $oldRelation->type) {
+                        $table->addRelation($relation); // overrides HAS_MANY
+                    }
+                } else {
+                    $table->addRelation($relation);
+                }
 
                 // if other has foreign keys to other tables, we can say these are related as well
                 foreach ($constraints2 as $key2 => $constraint2) {
