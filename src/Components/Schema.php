@@ -492,7 +492,7 @@ class Schema implements SchemaInterface
                         break;
                 }
 
-                if ($oldRelation = $table->getRelation($relation->name)){
+                if ($oldRelation = $table->getRelation($relation->name)) {
                     if (RelationSchema::HAS_ONE !== $oldRelation->type) {
                         $table->addRelation($relation); // overrides HAS_MANY
                     }
@@ -1073,17 +1073,10 @@ MYSQL;
             }
         }
 
-        $isUniqueKey = (isset($info['is_unique'])) ? filter_var($info['is_unique'], FILTER_VALIDATE_BOOLEAN) : false;
-        $isPrimaryKey =
-            (isset($info['is_primary_key'])) ? filter_var($info['is_primary_key'], FILTER_VALIDATE_BOOLEAN) : false;
-        if ($isPrimaryKey && $isUniqueKey) {
-            throw new \Exception('Unique and Primary designations not allowed simultaneously.');
-        }
-
-        if ($isUniqueKey) {
-            $definition .= ' UNIQUE KEY';
-        } elseif ($isPrimaryKey) {
+        if (isset($info['is_primary_key']) && filter_var($info['is_primary_key'], FILTER_VALIDATE_BOOLEAN)) {
             $definition .= ' PRIMARY KEY';
+        } elseif (isset($info['is_unique']) && filter_var($info['is_unique'], FILTER_VALIDATE_BOOLEAN)) {
+            $definition .= ' UNIQUE KEY';
         }
 
         return $definition;
