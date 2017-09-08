@@ -91,6 +91,11 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
         return $this->allowUpsert;
     }
 
+    public function getCacheEnabled()
+    {
+        return $this->cacheEnabled;
+    }
+
     /**
      * {@inheritdoc}
      */

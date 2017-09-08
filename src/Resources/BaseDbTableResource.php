@@ -458,20 +458,60 @@ abstract class BaseDbTableResource extends BaseDbResource
             throw new NotFoundException('Table "' . $this->resource . '" does not exist in the database.');
         }
 
-        $options = $this->request->getParameters();
+        $options = array_except((array)$this->request->getParameters(), ['_']);
+        $paramKey = '';
+        if (!empty($options)) {
+            foreach ($options as $name => $value) {
+                if ((ApiOptions::FIELDS === $name) && (ApiOptions::FIELDS_ALL === $value)) {
+                    continue; // no need to clutter the key
+                }
+                $paramKey .= "$name=$value&";
+            }
+        }
         if (!array_key_exists(ApiOptions::FIELDS, $options)) {
             $options[ApiOptions::FIELDS] = ApiOptions::FIELDS_ALL;
         }
 
         if (!is_null($this->resourceId)) {
+            $cacheKey = '';
+            if ($this->parent->getCacheEnabled()) {
+                // build cache_key
+                $cacheKey = "$tableName:{$this->resourceId}";
+                if (!empty($paramKey)) {
+                    $cacheKey .= ':' . $paramKey;
+                }
+
+                if (null !== $result = $this->parent->getFromCache($cacheKey)) {
+                    return $result;
+                }
+            }
             //	Single resource by ID
             $result = $this->retrieveRecordById($tableName, $this->resourceId, $options);
+
+            if (!empty($cacheKey)) {
+                $this->parent->addToCache($cacheKey, $result);
+            }
 
             return $result;
         }
 
         $ids = array_get($options, ApiOptions::IDS);
         if (!is_null($ids)) {
+            $cacheKey = '';
+            if ($this->parent->getCacheEnabled()) {
+                // build cache_key
+                $cacheKey = $tableName;
+                if (!empty($ids)) {
+                    $cacheKey .= ':' . $ids;
+                }
+                if (!empty($paramKey)) {
+                    $cacheKey .= ':' . $paramKey;
+                }
+
+                if (null !== $result = $this->parent->getFromCache($cacheKey)) {
+                    return $result;
+                }
+            }
             //	Multiple resources by ID
             $result = $this->retrieveRecordsByIds($tableName, $ids, $options);
         } elseif (!empty($records = ResourcesWrapper::unwrapResources($this->getPayloadData()))) {
@@ -479,8 +519,23 @@ abstract class BaseDbTableResource extends BaseDbResource
             $result = $this->retrieveRecords($tableName, $records, $options);
         } else {
             $filter = array_get($options, ApiOptions::FILTER);
-            $params = array_get($options, ApiOptions::PARAMS, []);
+            $params = (array)array_get($options, ApiOptions::PARAMS, []);
 
+            $cacheKey = '';
+            if ($this->parent->getCacheEnabled()) {
+                // build cache_key
+                $cacheKey = $tableName;
+                if (!empty($filter)) {
+                    $cacheKey .= ':' . $filter;
+                }
+                if (!empty($paramKey)) {
+                    $cacheKey .= ':' . $paramKey;
+                }
+
+                if (null !== $result = $this->parent->getFromCache($cacheKey)) {
+                    return $result;
+                }
+            }
             $result = $this->retrieveRecordsByFilter($tableName, $filter, $params, $options);
         }
 
@@ -496,6 +551,10 @@ abstract class BaseDbTableResource extends BaseDbResource
             if (!empty($meta)) {
                 $result['meta'] = $meta;
             }
+        }
+
+        if (!empty($cacheKey)) {
+            $this->parent->addToCache($cacheKey, $result);
         }
 
         return $result;

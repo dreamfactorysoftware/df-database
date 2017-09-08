@@ -3,9 +3,12 @@ All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
+### Added
+- DF-1060 Support for data retrieval (GET) caching and configuration
 
 ## [0.6.1] - 2017-08-30
-- Add generic support for list, set, map, and tuple
+### Added
+- Support for list, set, map, and tuple data types
 
 ## [0.6.0] - 2017-08-17
 - Removed direct use of Service model, using ServiceManager
