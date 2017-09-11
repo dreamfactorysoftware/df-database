@@ -300,7 +300,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                 // default for GET should be "return all fields"
                 if (!array_key_exists(ApiOptions::FIELDS, $options)) {
                     $updateOptions = true;
-                    $options[ApiOptions::FIELDS] = '*';
+                    $options[ApiOptions::FIELDS] = ApiOptions::FIELDS_ALL;
                 }
             }
 
@@ -319,7 +319,7 @@ abstract class BaseDbTableResource extends BaseDbResource
 
             // All calls can request related data to be returned
             $related = $this->request->getParameter(ApiOptions::RELATED);
-            if (!empty($related) && is_string($related) && ('*' !== $related)) {
+            if (!empty($related) && is_string($related) && (ApiOptions::FIELDS_ALL !== $related)) {
                 if (!is_array($related)) {
                     $related = array_map('trim', explode(',', $related));
                 }
@@ -331,7 +331,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                             'name'             => $relative,
                             ApiOptions::FIELDS => $this->request->getParameter(
                                 str_replace('.', '_', $relative . '.' . ApiOptions::FIELDS),
-                                '*'),
+                                ApiOptions::FIELDS_ALL),
                             ApiOptions::LIMIT  => $this->request->getParameter(
                                 str_replace('.', '_', $relative . '.' . ApiOptions::LIMIT),
                                 static::getMaxRecordsReturnedLimit()),
@@ -458,14 +458,22 @@ abstract class BaseDbTableResource extends BaseDbResource
             throw new NotFoundException('Table "' . $this->resource . '" does not exist in the database.');
         }
 
-        $options = array_except((array)$this->request->getParameters(), ['_']);
+        $options = (array)$this->request->getParameters();
         $paramKey = '';
-        if (!empty($options)) {
-            foreach ($options as $name => $value) {
-                if ((ApiOptions::FIELDS === $name) && (ApiOptions::FIELDS_ALL === $value)) {
+        if (!empty($options) && $this->parent->getCacheEnabled()) {
+            $params = array_change_key_case(array_dot($options), CASE_LOWER);
+            ksort($params, SORT_NATURAL); // so param or case order doesn't affect cache key
+            foreach ($params as $name => $value) {
+                if (('_' === $name) ||
+                    ((ApiOptions::FIELDS === $name) && (ApiOptions::FIELDS_ALL === $value)) ||
+                    is_null($value)
+                ) {
                     continue; // no need to clutter the key
                 }
-                $paramKey .= "$name=$value&";
+                if (!empty($paramKey)) {
+                    $paramKey .= '&';
+                }
+                $paramKey .= "$name=$value";
             }
         }
         if (!array_key_exists(ApiOptions::FIELDS, $options)) {
@@ -476,7 +484,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             $cacheKey = '';
             if ($this->parent->getCacheEnabled()) {
                 // build cache_key
-                $cacheKey = "$tableName:{$this->resourceId}";
+                $cacheKey = strtolower($tableName) . ':' . $this->resourceId;
                 if (!empty($paramKey)) {
                     $cacheKey .= ':' . $paramKey;
                 }
@@ -501,9 +509,6 @@ abstract class BaseDbTableResource extends BaseDbResource
             if ($this->parent->getCacheEnabled()) {
                 // build cache_key
                 $cacheKey = $tableName;
-                if (!empty($ids)) {
-                    $cacheKey .= ':' . $ids;
-                }
                 if (!empty($paramKey)) {
                     $cacheKey .= ':' . $paramKey;
                 }
@@ -518,16 +523,10 @@ abstract class BaseDbTableResource extends BaseDbResource
             // passing records to have them updated with new or more values, id field required
             $result = $this->retrieveRecords($tableName, $records, $options);
         } else {
-            $filter = array_get($options, ApiOptions::FILTER);
-            $params = (array)array_get($options, ApiOptions::PARAMS, []);
-
             $cacheKey = '';
             if ($this->parent->getCacheEnabled()) {
                 // build cache_key
                 $cacheKey = $tableName;
-                if (!empty($filter)) {
-                    $cacheKey .= ':' . $filter;
-                }
                 if (!empty($paramKey)) {
                     $cacheKey .= ':' . $paramKey;
                 }
@@ -536,6 +535,10 @@ abstract class BaseDbTableResource extends BaseDbResource
                     return $result;
                 }
             }
+
+            $filter = array_get($options, ApiOptions::FILTER);
+            $params = (array)array_get($options, ApiOptions::PARAMS, []);
+
             $result = $this->retrieveRecordsByFilter($tableName, $filter, $params, $options);
         }
 
@@ -1878,7 +1881,10 @@ abstract class BaseDbTableResource extends BaseDbResource
      */
     protected function retrieveRelatedRecords(TableSchema $schema, $relations, $requests, &$data)
     {
-        $relatedExtras = [ApiOptions::LIMIT => static::getMaxRecordsReturnedLimit(), ApiOptions::FIELDS => '*'];
+        $relatedExtras = [
+            ApiOptions::LIMIT  => static::getMaxRecordsReturnedLimit(),
+            ApiOptions::FIELDS => ApiOptions::FIELDS_ALL
+        ];
         foreach ($relations as $key => $relation) {
             if (empty($relation)) {
                 throw new BadRequestException("Empty relationship found.");
@@ -1886,7 +1892,7 @@ abstract class BaseDbTableResource extends BaseDbResource
 
             if (is_array($requests) && array_key_exists($key, $requests)) {
                 $this->retrieveRelationRecords($schema, $relation, $data, $requests[$key]);
-            } elseif (('*' == $requests) || $relation->alwaysFetch) {
+            } elseif ((ApiOptions::FIELDS_ALL == $requests) || $relation->alwaysFetch) {
                 $this->retrieveRelationRecords($schema, $relation, $data, $relatedExtras);
             }
         }
@@ -3786,7 +3792,7 @@ abstract class BaseDbTableResource extends BaseDbResource
      */
     protected static function cleanRecord($record = [], $include = '*', $id_field = null)
     {
-        if ('*' !== $include) {
+        if (ApiOptions::FIELDS_ALL !== $include) {
             if (!empty($id_field) && !is_array($id_field)) {
                 $id_field = array_map('trim', explode(',', trim($id_field, ',')));
             }
@@ -3992,7 +3998,7 @@ abstract class BaseDbTableResource extends BaseDbResource
      */
     protected static function requireMoreFields($fields, $id_field = null)
     {
-        if (('*' == $fields) || empty($id_field)) {
+        if ((ApiOptions::FIELDS_ALL == $fields) || empty($id_field)) {
             return true;
         }
 
@@ -4162,7 +4168,7 @@ abstract class BaseDbTableResource extends BaseDbResource
 
     public static function addToFields(&$fields, $new_field)
     {
-        if (!empty($fields) && ('*' !== $fields)) {
+        if (!empty($fields) && (ApiOptions::FIELDS_ALL !== $fields)) {
             if (is_string($fields) &&
                 (false === strpos(',' . $fields . ',', ',' . str_replace(' ', '', $new_field) . ','))
             ) {
