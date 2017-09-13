@@ -459,8 +459,10 @@ abstract class BaseDbTableResource extends BaseDbResource
         }
 
         $options = (array)$this->request->getParameters();
+        $refresh = array_get_bool($options, ApiOptions::REFRESH);
         $paramKey = '';
-        if (!empty($options) && $this->parent->getCacheEnabled()) {
+        $cacheKey = '';
+        if ($this->parent->getCacheEnabled() && !empty($options)) {
             $params = array_change_key_case(array_dot($options), CASE_LOWER);
             ksort($params, SORT_NATURAL); // so param or case order doesn't affect cache key
             foreach ($params as $name => $value) {
@@ -481,7 +483,6 @@ abstract class BaseDbTableResource extends BaseDbResource
         }
 
         if (!is_null($this->resourceId)) {
-            $cacheKey = '';
             if ($this->parent->getCacheEnabled()) {
                 // build cache_key
                 $cacheKey = strtolower($tableName) . ':' . $this->resourceId;
@@ -489,7 +490,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                     $cacheKey .= ':' . $paramKey;
                 }
 
-                if (null !== $result = $this->parent->getFromCache($cacheKey)) {
+                if (!$refresh && (null !== $result = $this->parent->getFromCache($cacheKey))) {
                     return $result;
                 }
             }
@@ -505,7 +506,6 @@ abstract class BaseDbTableResource extends BaseDbResource
 
         $ids = array_get($options, ApiOptions::IDS);
         if (!is_null($ids)) {
-            $cacheKey = '';
             if ($this->parent->getCacheEnabled()) {
                 // build cache_key
                 $cacheKey = $tableName;
@@ -513,7 +513,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                     $cacheKey .= ':' . $paramKey;
                 }
 
-                if (null !== $result = $this->parent->getFromCache($cacheKey)) {
+                if (!$refresh && (null !== $result = $this->parent->getFromCache($cacheKey))) {
                     return $result;
                 }
             }
@@ -523,7 +523,6 @@ abstract class BaseDbTableResource extends BaseDbResource
             // passing records to have them updated with new or more values, id field required
             $result = $this->retrieveRecords($tableName, $records, $options);
         } else {
-            $cacheKey = '';
             if ($this->parent->getCacheEnabled()) {
                 // build cache_key
                 $cacheKey = $tableName;
@@ -531,7 +530,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                     $cacheKey .= ':' . $paramKey;
                 }
 
-                if (null !== $result = $this->parent->getFromCache($cacheKey)) {
+                if (!$refresh && (null !== $result = $this->parent->getFromCache($cacheKey))) {
                     return $result;
                 }
             }
@@ -1874,16 +1873,18 @@ abstract class BaseDbTableResource extends BaseDbResource
      * @param RelationSchema[] $relations
      * @param string|array     $requests
      * @param array            $data
+     * @param boolean          $refresh
      *
      * @throws InternalServerErrorException
      * @throws BadRequestException
      * @return void
      */
-    protected function retrieveRelatedRecords(TableSchema $schema, $relations, $requests, &$data)
+    protected function retrieveRelatedRecords(TableSchema $schema, $relations, $requests, &$data, $refresh = false)
     {
         $relatedExtras = [
             ApiOptions::LIMIT  => static::getMaxRecordsReturnedLimit(),
-            ApiOptions::FIELDS => ApiOptions::FIELDS_ALL
+            ApiOptions::FIELDS => ApiOptions::FIELDS_ALL,
+            ApiOptions::REFRESH => $refresh
         ];
         foreach ($relations as $key => $relation) {
             if (empty($relation)) {
@@ -1891,6 +1892,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             }
 
             if (is_array($requests) && array_key_exists($key, $requests)) {
+                $requests[$key][ApiOptions::REFRESH] = $refresh;
                 $this->retrieveRelationRecords($schema, $relation, $data, $requests[$key]);
             } elseif ((ApiOptions::FIELDS_ALL == $requests) || $relation->alwaysFetch) {
                 $this->retrieveRelationRecords($schema, $relation, $data, $relatedExtras);
