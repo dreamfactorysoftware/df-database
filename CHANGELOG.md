@@ -5,6 +5,8 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 ## [Unreleased]
 ### Added
 - DF-1060 Support for data retrieval (GET) caching and configuration
+### Fixed
+- DF-1160 Correct resource name usage for procedures and functions when pulling parameters
 
 ## [0.6.1] - 2017-08-30
 ### Added
