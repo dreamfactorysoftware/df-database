@@ -169,7 +169,7 @@ abstract class BaseDbTableResource extends BaseDbResource
     {
         if ($refresh || (is_null($tables = $this->parent->getFromCache('tables')))) {
             $tables = [];
-            foreach ($this->parent->getSchemas() as $schemaName) {
+            foreach ($this->parent->getSchemas($refresh) as $schemaName) {
                 $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE, $schemaName);
                 $tables = array_merge($tables, $result);
                 // Until views are separated as separate resource
@@ -306,8 +306,8 @@ abstract class BaseDbTableResource extends BaseDbResource
 
             // Add server side filtering properties
             $resource = $this->name . '/' . $this->resource;
-            if (null !=
-                $ssFilters = Session::getServiceFilters($this->getRequestedAction(), $this->parent->name, $resource)
+            if ($ssFilters = Session::getServiceFilters($this->getRequestedAction(), $this->parent->name, $resource,
+                $this->request->getRequestorType())
             ) {
                 $updateOptions = true;
                 $options['ss_filters'] = $ssFilters;
@@ -1882,8 +1882,8 @@ abstract class BaseDbTableResource extends BaseDbResource
     protected function retrieveRelatedRecords(TableSchema $schema, $relations, $requests, &$data, $refresh = false)
     {
         $relatedExtras = [
-            ApiOptions::LIMIT  => static::getMaxRecordsReturnedLimit(),
-            ApiOptions::FIELDS => ApiOptions::FIELDS_ALL,
+            ApiOptions::LIMIT   => static::getMaxRecordsReturnedLimit(),
+            ApiOptions::FIELDS  => ApiOptions::FIELDS_ALL,
             ApiOptions::REFRESH => $refresh
         ];
         foreach ($relations as $key => $relation) {
