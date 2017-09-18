@@ -468,16 +468,37 @@ class Schema implements SchemaInterface
                 $table->addRelation($relation);
             } elseif ((0 == strcasecmp($rtn, $table->resourceName)) && (0 == strcasecmp($rts, $schema))) {
                 $name = ($ts == $defaultSchema) ? $tn : $ts . '.' . $tn;
-                $relation =
-                    new RelationSchema([
-                        'type'           => RelationSchema::HAS_MANY,
-                        'field'          => $rcn,
-                        'ref_service_id' => $this->getServiceId(),
-                        'ref_table'      => $name,
-                        'ref_field'      => $cn,
-                    ]);
+                switch (strtolower((string)array_get($constraint, 'constraint_type'))) {
+                    case 'primary key':
+                    case 'unique':
+                    case 'p':
+                    case 'u':
+                        $relation = new RelationSchema([
+                            'type'           => RelationSchema::HAS_ONE,
+                            'field'          => $rcn,
+                            'ref_service_id' => $this->getServiceId(),
+                            'ref_table'      => $name,
+                            'ref_field'      => $cn,
+                        ]);
+                        break;
+                    default:
+                        $relation = new RelationSchema([
+                            'type'           => RelationSchema::HAS_MANY,
+                            'field'          => $rcn,
+                            'ref_service_id' => $this->getServiceId(),
+                            'ref_table'      => $name,
+                            'ref_field'      => $cn,
+                        ]);
+                        break;
+                }
 
-                $table->addRelation($relation);
+                if ($oldRelation = $table->getRelation($relation->name)) {
+                    if (RelationSchema::HAS_ONE !== $oldRelation->type) {
+                        $table->addRelation($relation); // overrides HAS_MANY
+                    }
+                } else {
+                    $table->addRelation($relation);
+                }
 
                 // if other has foreign keys to other tables, we can say these are related as well
                 foreach ($constraints2 as $key2 => $constraint2) {
@@ -796,15 +817,15 @@ MYSQL;
     protected function loadParameters(RoutineSchema $holder)
     {
         $sql = <<<MYSQL
-SELECT 
-    p.ORDINAL_POSITION, p.PARAMETER_MODE, p.PARAMETER_NAME, p.DATA_TYPE, p.CHARACTER_MAXIMUM_LENGTH, p.NUMERIC_PRECISION, p.NUMERIC_SCALE
-FROM 
-    INFORMATION_SCHEMA.PARAMETERS AS p JOIN INFORMATION_SCHEMA.ROUTINES AS r ON r.SPECIFIC_NAME = p.SPECIFIC_NAME
-WHERE 
-    r.ROUTINE_NAME = '{$holder->name}' AND r.ROUTINE_SCHEMA = '{$holder->schemaName}'
+SELECT p.ORDINAL_POSITION, p.PARAMETER_MODE, p.PARAMETER_NAME, p.DATA_TYPE, p.CHARACTER_MAXIMUM_LENGTH, 
+p.NUMERIC_PRECISION, p.NUMERIC_SCALE
+FROM INFORMATION_SCHEMA.PARAMETERS AS p 
+JOIN INFORMATION_SCHEMA.ROUTINES AS r ON r.SPECIFIC_NAME = p.SPECIFIC_NAME
+WHERE r.ROUTINE_NAME = '{$holder->resourceName}' AND r.ROUTINE_SCHEMA = '{$holder->schemaName}'
 MYSQL;
 
-        foreach ($this->connection->select($sql) as $row) {
+        $params = $this->connection->select($sql);
+        foreach ($params as $row) {
             $row = array_change_key_case((array)$row, CASE_UPPER);
             $name = ltrim(array_get($row, 'PARAMETER_NAME'), '@'); // added on by some drivers, i.e. @name
             $pos = intval(array_get($row, 'ORDINAL_POSITION'));
@@ -1052,17 +1073,10 @@ MYSQL;
             }
         }
 
-        $isUniqueKey = (isset($info['is_unique'])) ? filter_var($info['is_unique'], FILTER_VALIDATE_BOOLEAN) : false;
-        $isPrimaryKey =
-            (isset($info['is_primary_key'])) ? filter_var($info['is_primary_key'], FILTER_VALIDATE_BOOLEAN) : false;
-        if ($isPrimaryKey && $isUniqueKey) {
-            throw new \Exception('Unique and Primary designations not allowed simultaneously.');
-        }
-
-        if ($isUniqueKey) {
-            $definition .= ' UNIQUE KEY';
-        } elseif ($isPrimaryKey) {
+        if (isset($info['is_primary_key']) && filter_var($info['is_primary_key'], FILTER_VALIDATE_BOOLEAN)) {
             $definition .= ' PRIMARY KEY';
+        } elseif (isset($info['is_unique']) && filter_var($info['is_unique'], FILTER_VALIDATE_BOOLEAN)) {
+            $definition .= ' UNIQUE KEY';
         }
 
         return $definition;

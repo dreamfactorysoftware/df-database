@@ -4,8 +4,18 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2017-09-15
+### Added
+- DF-1060 Support for data retrieval (GET) caching and configuration
+- Add new support for HAS_ONE relationship to schema management
+### Fixed
+- DF-1160 Correct resource name usage for procedures and functions when pulling parameters
+- Allow refresh request option to pass down through the layers
+- Cleanup primary and unique key handling
+
 ## [0.6.1] - 2017-08-30
-- Add generic support for list, set, map, and tuple
+### Added
+- Support for list, set, map, and tuple data types
 
 ## [0.6.0] - 2017-08-17
 - Removed direct use of Service model, using ServiceManager
@@ -62,7 +72,8 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 ## 0.1.0 - 2015-10-24
 First official release working with the new [dreamfactory](https://github.com/dreamfactorysoftware/dreamfactory) project.
 
-[Unreleased]: https://github.com/dreamfactorysoftware/df-database/compare/0.6.1...HEAD
+[Unreleased]: https://github.com/dreamfactorysoftware/df-database/compare/0.7.0...HEAD
+[0.7.0]: https://github.com/dreamfactorysoftware/df-database/compare/0.6.1...0.7.0
 [0.6.1]: https://github.com/dreamfactorysoftware/df-database/compare/0.6.0...0.6.1
 [0.6.0]: https://github.com/dreamfactorysoftware/df-database/compare/0.5.1...0.6.0
 [0.5.1]: https://github.com/dreamfactorysoftware/df-database/compare/0.5.0...0.5.1

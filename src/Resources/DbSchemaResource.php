@@ -169,7 +169,7 @@ class DbSchemaResource extends BaseDbResource
     {
         if ($refresh || (is_null($tables = $this->parent->getFromCache('tables')))) {
             $tables = [];
-            foreach ($this->parent->getSchemas() as $schemaName) {
+            foreach ($this->parent->getSchemas($refresh) as $schemaName) {
                 $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE, $schemaName);
                 $tables = array_merge($tables, $result);
                 // Until views are separated as separate resource
@@ -2471,6 +2471,7 @@ class DbSchemaResource extends BaseDbResource
                 $type = strtolower((string)array_get($relation, 'type', ''));
                 switch ($type) {
                     case RelationSchema::BELONGS_TO:
+                    case RelationSchema::HAS_ONE:
                     case RelationSchema::HAS_MANY:
                     case RelationSchema::MANY_MANY:
                         $relation['type'] = $type;
