@@ -2411,7 +2411,7 @@ MYSQL;
                 return static::formatDateTime(
                     static::getConfigDateTimeFormat($type),
                     $value,
-                    static::getNativeDateTimeFormat($type)
+                    static::getNativeDateTimeFormat($field_info)
                 );
         }
 
@@ -2448,12 +2448,20 @@ MYSQL;
     }
 
     /**
-     * @param $type
+     * @param string|ParameterSchema|ColumnSchema $field_info
      *
      * @return mixed|null
      */
-    public static function getNativeDateTimeFormat($type)
+    public static function getNativeDateTimeFormat($field_info)
     {
+        $type = DbSimpleTypes::TYPE_STRING;
+        if (is_string($field_info)) {
+            $type = $field_info;
+        } elseif ($field_info instanceof ColumnSchema) {
+            $type = $field_info->type;
+        } elseif ($field_info instanceof ParameterSchema) {
+            $type = $field_info->type;
+        }
         // by default, assume no support for fractional seconds or timezone
         switch (strtolower(strval($type))) {
             case DbSimpleTypes::TYPE_DATE:
@@ -2574,7 +2582,7 @@ MYSQL;
             case DbSimpleTypes::TYPE_TIMESTAMP_ON_CREATE:
             case DbSimpleTypes::TYPE_TIMESTAMP_ON_UPDATE:
                 $value = $this->formatDateTime(
-                    static::getNativeDateTimeFormat($field_info->type),
+                    static::getNativeDateTimeFormat($field_info),
                     $value,
                     static::getConfigDateTimeFormat($field_info->type)
                 );
