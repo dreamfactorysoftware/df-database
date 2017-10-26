@@ -2040,6 +2040,7 @@ abstract class BaseDbTableResource extends BaseDbResource
 
     protected function buildTableRelations(TableSchema $table, $constraints)
     {
+        $serviceId = $this->getServiceId();
         $defaultSchema = $this->parent->getNamingSchema();
         $constraints2 = $constraints;
 
@@ -2070,7 +2071,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                     new RelationSchema([
                         'type'           => RelationSchema::BELONGS_TO,
                         'field'          => $cn,
-                        'ref_service_id' => $this->getServiceId(),
+                        'ref_service_id' => $serviceId,
                         'ref_table'      => $name,
                         'ref_field'      => $rcn,
                     ]);
@@ -2086,7 +2087,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                         $relation = new RelationSchema([
                             'type'           => RelationSchema::HAS_ONE,
                             'field'          => $rcn,
-                            'ref_service_id' => $this->getServiceId(),
+                            'ref_service_id' => $serviceId,
                             'ref_table'      => $name,
                             'ref_field'      => $cn,
                         ]);
@@ -2095,7 +2096,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                         $relation = new RelationSchema([
                             'type'           => RelationSchema::HAS_MANY,
                             'field'          => $rcn,
-                            'ref_service_id' => $this->getServiceId(),
+                            'ref_service_id' => $serviceId,
                             'ref_table'      => $name,
                             'ref_field'      => $cn,
                         ]);
@@ -2133,10 +2134,10 @@ abstract class BaseDbTableResource extends BaseDbResource
                                     new RelationSchema([
                                         'type'                => RelationSchema::MANY_MANY,
                                         'field'               => $rcn,
-                                        'ref_service_id'      => $this->getServiceId(),
+                                        'ref_service_id'      => $serviceId,
                                         'ref_table'           => $name2,
                                         'ref_field'           => $rcn2,
-                                        'junction_service_id' => $this->getServiceId(),
+                                        'junction_service_id' => $serviceId,
                                         'junction_table'      => $name,
                                         'junction_field'      => $cn,
                                         'junction_ref_field'  => $cn2
