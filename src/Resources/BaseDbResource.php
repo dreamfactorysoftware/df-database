@@ -1,4 +1,5 @@
 <?php
+
 namespace DreamFactory\Core\Database\Resources;
 
 use DreamFactory\Core\Database\Components\DbSchemaExtras;
@@ -93,15 +94,13 @@ abstract class BaseDbResource extends BaseRestResource
         return $output;
     }
 
-    public static function getApiDocInfo($service, array $resource = [])
+    protected function getApiDocPaths()
     {
-        $results = parent::getApiDocInfo($service, $resource);
-        $serviceName = strtolower($service);
-        $class = trim(strrchr(static::class, '\\'), '\\');
-        $resourceName = strtolower(array_get($resource, 'name', $class));
-        $path = '/' . $serviceName . '/' . $resourceName;
+        $results = parent::getApiDocPaths();
+        $resourceName = strtolower($this->name);
+        $path = '/' . $resourceName;
 
-        $results['paths'][$path]['get']['parameters'] = [
+        $results[$path]['get']['parameters'] = [
             ApiOptions::documentOption(ApiOptions::AS_LIST),
             ApiOptions::documentOption(ApiOptions::FIELDS),
             ApiOptions::documentOption(ApiOptions::IDS),

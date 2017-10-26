@@ -8,7 +8,6 @@ use DreamFactory\Core\Database\Schema\FunctionSchema;
 use DreamFactory\Core\Database\Schema\NamedResourceSchema;
 use DreamFactory\Core\Database\Schema\ParameterSchema;
 use DreamFactory\Core\Database\Schema\ProcedureSchema;
-use DreamFactory\Core\Database\Schema\RelationSchema;
 use DreamFactory\Core\Database\Schema\RoutineSchema;
 use DreamFactory\Core\Database\Schema\TableSchema;
 use DreamFactory\Core\Enums\DbResourceTypes;
@@ -46,22 +45,6 @@ class Schema implements SchemaInterface
     const ROUTINE_FETCH_MODE = \PDO::FETCH_NAMED;
 
     /**
-     * @var integer
-     */
-    protected $serviceId = null;
-    /**
-     * @var boolean
-     */
-    protected $defaultSchemaOnly = false;
-    /**
-     * @var string
-     */
-    protected $defaultSchema;
-    /**
-     * @var string
-     */
-    protected $userSchema;
-    /**
      * @var Connection
      */
     protected $connection;
@@ -82,57 +65,6 @@ class Schema implements SchemaInterface
     public function getDbConnection()
     {
         return $this->connection;
-    }
-
-    /**
-     * @return string|null
-     */
-    public function getUserSchema()
-    {
-        return $this->userSchema;
-    }
-
-    /**
-     * @param string|null $schema
-     */
-    public function setUserSchema($schema)
-    {
-        $this->userSchema = $schema;
-    }
-
-    /**
-     * @return boolean
-     */
-    public function isDefaultSchemaOnly()
-    {
-        return $this->defaultSchemaOnly;
-    }
-
-    /**
-     * @param boolean $defaultSchemaOnly
-     */
-    public function setDefaultSchemaOnly($defaultSchemaOnly)
-    {
-        $this->defaultSchemaOnly = $defaultSchemaOnly;
-    }
-
-    /**
-     * @return null|integer
-     */
-    public function getServiceId()
-    {
-        return $this->serviceId;
-    }
-
-    /**
-     * @param integer $id
-     * @return $this
-     */
-    public function setServiceId($id)
-    {
-        $this->serviceId = $id;
-
-        return $this;
     }
 
     /**
@@ -209,19 +141,6 @@ class Schema implements SchemaInterface
         }
     }
 
-    public function getNamingSchema()
-    {
-        switch (strtolower($this->userSchema)) {
-            case null:
-            case '':
-            case 'all':
-            case 'default':
-                return $this->getDefaultSchema();
-            default:
-                return $this->userSchema;
-        }
-    }
-
     /**
      * Returns the default schema name for the connection.
      *
@@ -229,9 +148,7 @@ class Schema implements SchemaInterface
      */
     public function getDefaultSchema()
     {
-        $this->defaultSchema = $this->findDefaultSchema();
-
-        return $this->defaultSchema;
+        return $this->findDefaultSchema();
     }
 
     /**
@@ -240,7 +157,7 @@ class Schema implements SchemaInterface
      * because the default implementation simply returns null.
      *
      * @throws \Exception
-     * @return array all schema names in the database.
+     * @return string Default schema name for this connection
      */
     protected function findDefaultSchema()
     {
@@ -254,16 +171,7 @@ class Schema implements SchemaInterface
      */
     public function getSchemas()
     {
-        if (!empty($this->userSchema) && (0 !== strcasecmp($this->userSchema, 'all'))) {
-            if (0 === strcasecmp($this->userSchema, 'default')) {
-                return [$this->getDefaultSchema()];
-            }
-
-            return [$this->userSchema];
-        }
-
         $schemas = $this->findSchemaNames();
-        natcasesort($schemas);
 
         return $schemas;
     }
@@ -343,6 +251,8 @@ class Schema implements SchemaInterface
                 return $this->getTableNames($schema);
             case DbResourceTypes::TYPE_VIEW:
                 return $this->getViewNames($schema);
+            case DbResourceTypes::TYPE_TABLE_RELATIONSHIP:
+                return $this->getTableReferences();
             case DbResourceTypes::TYPE_PROCEDURE:
                 return $this->getProcedureNames($schema);
             case DbResourceTypes::TYPE_FUNCTION:
@@ -370,7 +280,7 @@ class Schema implements SchemaInterface
 
                 return $name;
             case DbResourceTypes::TYPE_VIEW:
-                $this->loadTable($name);
+                $this->loadView($name);
 
                 return $name;
             case DbResourceTypes::TYPE_PROCEDURE:
@@ -389,13 +299,14 @@ class Schema implements SchemaInterface
     /**
      * @param string $type Resource type
      * @param string $name Resource name
-     *
      * @return mixed
+     * @throws \Exception
      */
     public function dropResource($type, $name)
     {
         switch ($type) {
             case DbResourceTypes::TYPE_SCHEMA:
+                throw new \Exception('Dropping the schema resource is not currently supported.');
                 break;
             case DbResourceTypes::TYPE_TABLE:
                 $this->dropTable($name);
@@ -413,131 +324,16 @@ class Schema implements SchemaInterface
                 $this->dropRelationship($name[0], $name[1]);
                 break;
             case DbResourceTypes::TYPE_PROCEDURE:
+                throw new \Exception('Dropping the stored procedure resource is not currently supported.');
                 break;
             case DbResourceTypes::TYPE_FUNCTION:
+                throw new \Exception('Dropping the stored function resource is not currently supported.');
                 break;
             default:
                 return false;
         }
 
         return true;
-    }
-
-    /**
-     * @param \DreamFactory\Core\Database\Schema\TableSchema $table
-     * @param                                                $constraints
-     */
-    protected function buildTableRelations(TableSchema $table, $constraints)
-    {
-        $schema = (!empty($table->schemaName)) ? $table->schemaName : $this->getDefaultSchema();
-        $defaultSchema = $this->getNamingSchema();
-        $constraints2 = $constraints;
-
-        foreach ($constraints as $key => $constraint) {
-            $constraint = array_change_key_case((array)$constraint, CASE_LOWER);
-            $ts = $constraint['table_schema'];
-            $tn = $constraint['table_name'];
-            $cn = $constraint['column_name'];
-            $rts = $constraint['referenced_table_schema'];
-            $rtn = $constraint['referenced_table_name'];
-            $rcn = $constraint['referenced_column_name'];
-            if ((0 == strcasecmp($tn, $table->resourceName)) && (0 == strcasecmp($ts, $schema))) {
-                $name = ($rts == $defaultSchema) ? $rtn : $rts . '.' . $rtn;
-                $column = $table->getColumn($cn);
-                $table->foreignKeys[strtolower($cn)] = [$name, $rcn];
-                if (isset($column)) {
-                    $column->isForeignKey = true;
-                    $column->refTable = $name;
-                    $column->refField = $rcn;
-                    if (DbSimpleTypes::TYPE_INTEGER === $column->type) {
-                        $column->type = DbSimpleTypes::TYPE_REF;
-                    }
-                    $table->addColumn($column);
-                }
-
-                // Add it to our foreign references as well
-                $relation =
-                    new RelationSchema([
-                        'type'           => RelationSchema::BELONGS_TO,
-                        'field'          => $cn,
-                        'ref_service_id' => $this->getServiceId(),
-                        'ref_table'      => $name,
-                        'ref_field'      => $rcn,
-                    ]);
-
-                $table->addRelation($relation);
-            } elseif ((0 == strcasecmp($rtn, $table->resourceName)) && (0 == strcasecmp($rts, $schema))) {
-                $name = ($ts == $defaultSchema) ? $tn : $ts . '.' . $tn;
-                switch (strtolower((string)array_get($constraint, 'constraint_type'))) {
-                    case 'primary key':
-                    case 'unique':
-                    case 'p':
-                    case 'u':
-                        $relation = new RelationSchema([
-                            'type'           => RelationSchema::HAS_ONE,
-                            'field'          => $rcn,
-                            'ref_service_id' => $this->getServiceId(),
-                            'ref_table'      => $name,
-                            'ref_field'      => $cn,
-                        ]);
-                        break;
-                    default:
-                        $relation = new RelationSchema([
-                            'type'           => RelationSchema::HAS_MANY,
-                            'field'          => $rcn,
-                            'ref_service_id' => $this->getServiceId(),
-                            'ref_table'      => $name,
-                            'ref_field'      => $cn,
-                        ]);
-                        break;
-                }
-
-                if ($oldRelation = $table->getRelation($relation->name)) {
-                    if (RelationSchema::HAS_ONE !== $oldRelation->type) {
-                        $table->addRelation($relation); // overrides HAS_MANY
-                    }
-                } else {
-                    $table->addRelation($relation);
-                }
-
-                // if other has foreign keys to other tables, we can say these are related as well
-                foreach ($constraints2 as $key2 => $constraint2) {
-                    if (0 != strcasecmp($key, $key2)) // not same key
-                    {
-                        $constraint2 = array_change_key_case((array)$constraint2, CASE_LOWER);
-                        $ts2 = $constraint2['table_schema'];
-                        $tn2 = $constraint2['table_name'];
-                        $cn2 = $constraint2['column_name'];
-                        if ((0 == strcasecmp($ts2, $ts)) && (0 == strcasecmp($tn2, $tn))
-                        ) {
-                            $rts2 = $constraint2['referenced_table_schema'];
-                            $rtn2 = $constraint2['referenced_table_name'];
-                            $rcn2 = $constraint2['referenced_column_name'];
-                            if ((0 != strcasecmp($rts2, $schema)) || (0 != strcasecmp($rtn2, $table->resourceName))
-                            ) {
-                                $name2 = ($rts2 == $schema) ? $rtn2 : $rts2 . '.' . $rtn2;
-                                // not same as parent, i.e. via reference back to self
-                                // not the same key
-                                $relation =
-                                    new RelationSchema([
-                                        'type'                => RelationSchema::MANY_MANY,
-                                        'field'               => $rcn,
-                                        'ref_service_id'      => $this->getServiceId(),
-                                        'ref_table'           => $name2,
-                                        'ref_field'           => $rcn2,
-                                        'junction_service_id' => $this->getServiceId(),
-                                        'junction_table'      => $name,
-                                        'junction_field'      => $cn,
-                                        'junction_ref_field'  => $cn2
-                                    ]);
-
-                                $table->addRelation($relation);
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 
     /**
@@ -548,8 +344,16 @@ class Schema implements SchemaInterface
     protected function loadTable(TableSchema $table)
     {
         $this->loadFields($table);
+    }
 
-        $this->loadRelated($table);
+    /**
+     * Loads the metadata for the specified view.
+     *
+     * @param TableSchema $table Any already known info about the view
+     */
+    protected function loadView(TableSchema $table)
+    {
+        $this->loadFields($table);
     }
 
     /**
@@ -613,15 +417,12 @@ class Schema implements SchemaInterface
     }
 
     /**
-     * Loads the relationship metadata for the specified table.
+     * Loads the relationship metadata for the specified schemas.
      *
-     * @param TableSchema $table Any already known info about the table
      */
-    protected function loadRelated(TableSchema $table)
+    protected function getTableReferences()
     {
-        $references = $this->findTableReferences();
-
-        $this->buildTableRelations($table, $references);
+        return $this->findTableReferences();
     }
 
     /**
@@ -776,16 +577,13 @@ MYSQL;
 
         $rows = $this->connection->select($sql, $bindings);
 
-        $defaultSchema = $this->getNamingSchema();
-        $addSchema = (!empty($schema) && ($defaultSchema !== $schema));
-
         $names = [];
         foreach ($rows as $row) {
             $row = array_change_key_case((array)$row, CASE_UPPER);
             $resourceName = array_get($row, 'ROUTINE_NAME');
             $schemaName = $schema;
             $internalName = $schemaName . '.' . $resourceName;
-            $name = ($addSchema) ? $internalName : $resourceName;
+            $name = $resourceName;
             $quotedName = $this->quoteTableName($schemaName) . '.' . $this->quoteTableName($resourceName);
             $returnType = array_get($row, 'DATA_TYPE');
             if (!empty($returnType) && (0 !== strcasecmp('void', $returnType))) {
@@ -1001,16 +799,6 @@ MYSQL;
      *                              primary key plus one (i.e. sequence trimming).
      */
     public function resetSequence($table, $value = null)
-    {
-    }
-
-    /**
-     * Enables or disables integrity check.
-     *
-     * @param boolean $check  whether to turn on or off the integrity check.
-     * @param string  $schema the schema of the tables. Defaults to empty string, meaning the current or default schema.
-     */
-    public function checkIntegrity($check = true, $schema = '')
     {
     }
 
@@ -1520,9 +1308,7 @@ MYSQL;
                 $cols[] = "\t" . $type;
             }
         }
-        if ((false === strpos($tableName, '.')) && !empty($namingSchema = $this->getNamingSchema())) {
-            $tableName = $namingSchema . '.' . $tableName;
-        }
+
         $sql = "CREATE TABLE {$this->quoteTableName($tableName)} (\n" . implode(",\n", $cols) . "\n)";
 
         // string additional SQL fragment that will be appended to the generated SQL

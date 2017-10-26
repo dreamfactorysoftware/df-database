@@ -169,16 +169,27 @@ class DbSchemaResource extends BaseDbResource
     {
         if ($refresh || (is_null($tables = $this->parent->getFromCache('tables')))) {
             $tables = [];
+            $defaultSchema = $this->parent->getNamingSchema();
             foreach ($this->parent->getSchemas($refresh) as $schemaName) {
+                $addSchema = (!empty($schemaName) && ($defaultSchema !== $schemaName));
+
                 $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE, $schemaName);
-                $tables = array_merge($tables, $result);
+
                 // Until views are separated as separate resource
                 if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
-                    $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schemaName);
-                    $tables = array_merge($tables, $result);
+                    $views = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schemaName);
+                    $result = array_merge($result, $views);
+                }
+
+                foreach ($result as &$table) {
+                    if ($addSchema) {
+                        $table->name = ($addSchema) ? $table->internalName : $table->resourceName;
+                    }
+                    $tables[strtolower($table->name)] = $table;
                 }
             }
             ksort($tables, SORT_NATURAL); // sort alphabetically
+
             // merge db extras
             if (!empty($extrasEntries = $this->getSchemaExtrasForTables(array_keys($tables)))) {
                 foreach ($extrasEntries as $extras) {
@@ -189,6 +200,7 @@ class DbSchemaResource extends BaseDbResource
                     }
                 }
             }
+
             $this->parent->addToCache('tables', $tables, true);
         }
         if (!empty($schema)) {
@@ -691,6 +703,134 @@ class DbSchemaResource extends BaseDbResource
         return $result;
     }
 
+    protected function getTableReferences($refresh = false)
+    {
+        $result = null;
+        $cacheKey = 'table_refs';
+        if ($refresh || (is_null($result = $this->parent->getFromCache($cacheKey)))) {
+            $schema = $this->parent->getSchema();
+            if ($schema->supportsResourceType(DbResourceTypes::TYPE_TABLE_RELATIONSHIP)) {
+                $result = $schema->getResourceNames(DbResourceTypes::TYPE_TABLE_RELATIONSHIP);
+                $this->parent->addToCache($cacheKey, $result, true);
+            }
+        }
+
+        return $result;
+    }
+
+    protected function buildTableRelations(TableSchema $table, $constraints)
+    {
+        $defaultSchema = $this->parent->getNamingSchema();
+        $constraints2 = $constraints;
+
+        foreach ($constraints as $key => $constraint) {
+            $constraint = array_change_key_case((array)$constraint, CASE_LOWER);
+            $ts = $constraint['table_schema'];
+            $tn = $constraint['table_name'];
+            $cn = $constraint['column_name'];
+            $rts = $constraint['referenced_table_schema'];
+            $rtn = $constraint['referenced_table_name'];
+            $rcn = $constraint['referenced_column_name'];
+            if ((0 == strcasecmp($tn, $table->resourceName)) && (0 == strcasecmp($ts, $table->schemaName))) {
+                $name = ($rts == $defaultSchema) ? $rtn : $rts . '.' . $rtn;
+                $column = $table->getColumn($cn);
+                $table->foreignKeys[strtolower($cn)] = [$name, $rcn];
+                if (isset($column)) {
+                    $column->isForeignKey = true;
+                    $column->refTable = $name;
+                    $column->refField = $rcn;
+                    if (DbSimpleTypes::TYPE_INTEGER === $column->type) {
+                        $column->type = DbSimpleTypes::TYPE_REF;
+                    }
+                    $table->addColumn($column);
+                }
+
+                // Add it to our foreign references as well
+                $relation =
+                    new RelationSchema([
+                        'type'           => RelationSchema::BELONGS_TO,
+                        'field'          => $cn,
+                        'ref_service_id' => $this->getServiceId(),
+                        'ref_table'      => $name,
+                        'ref_field'      => $rcn,
+                    ]);
+
+                $table->addRelation($relation);
+            } elseif ((0 == strcasecmp($rtn, $table->resourceName)) && (0 == strcasecmp($rts, $table->schemaName))) {
+                $name = ($ts == $defaultSchema) ? $tn : $ts . '.' . $tn;
+                switch (strtolower((string)array_get($constraint, 'constraint_type'))) {
+                    case 'primary key':
+                    case 'unique':
+                    case 'p':
+                    case 'u':
+                        $relation = new RelationSchema([
+                            'type'           => RelationSchema::HAS_ONE,
+                            'field'          => $rcn,
+                            'ref_service_id' => $this->getServiceId(),
+                            'ref_table'      => $name,
+                            'ref_field'      => $cn,
+                        ]);
+                        break;
+                    default:
+                        $relation = new RelationSchema([
+                            'type'           => RelationSchema::HAS_MANY,
+                            'field'          => $rcn,
+                            'ref_service_id' => $this->getServiceId(),
+                            'ref_table'      => $name,
+                            'ref_field'      => $cn,
+                        ]);
+                        break;
+                }
+
+                if ($oldRelation = $table->getRelation($relation->name)) {
+                    if (RelationSchema::HAS_ONE !== $oldRelation->type) {
+                        $table->addRelation($relation); // overrides HAS_MANY
+                    }
+                } else {
+                    $table->addRelation($relation);
+                }
+
+                // if other has foreign keys to other tables, we can say these are related as well
+                foreach ($constraints2 as $key2 => $constraint2) {
+                    if (0 != strcasecmp($key, $key2)) // not same key
+                    {
+                        $constraint2 = array_change_key_case((array)$constraint2, CASE_LOWER);
+                        $ts2 = $constraint2['table_schema'];
+                        $tn2 = $constraint2['table_name'];
+                        $cn2 = $constraint2['column_name'];
+                        if ((0 == strcasecmp($ts2, $ts)) && (0 == strcasecmp($tn2, $tn))
+                        ) {
+                            $rts2 = $constraint2['referenced_table_schema'];
+                            $rtn2 = $constraint2['referenced_table_name'];
+                            $rcn2 = $constraint2['referenced_column_name'];
+                            if ((0 != strcasecmp($rts2, $table->schemaName)) ||
+                                (0 != strcasecmp($rtn2, $table->resourceName))
+                            ) {
+                                $name2 = ($rts2 == $table->schemaName) ? $rtn2 : $rts2 . '.' . $rtn2;
+                                // not same as parent, i.e. via reference back to self
+                                // not the same key
+                                $relation =
+                                    new RelationSchema([
+                                        'type'                => RelationSchema::MANY_MANY,
+                                        'field'               => $rcn,
+                                        'ref_service_id'      => $this->getServiceId(),
+                                        'ref_table'           => $name2,
+                                        'ref_field'           => $rcn2,
+                                        'junction_service_id' => $this->getServiceId(),
+                                        'junction_table'      => $name,
+                                        'junction_field'      => $cn,
+                                        'junction_ref_field'  => $cn2
+                                    ]);
+
+                                $table->addRelation($relation);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     protected function getTableSchema($name, $refresh = false)
     {
         $result = null;
@@ -701,11 +841,17 @@ class DbSchemaResource extends BaseDbResource
                 /** @type TableSchema $result */
                 if (!$result = $schema->getResource(DbResourceTypes::TYPE_TABLE, $tableSchema)) {
                     if ($schema->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
-                    $result = $schema->getResource(DbResourceTypes::TYPE_VIEW, $tableSchema);
+                        $result = $schema->getResource(DbResourceTypes::TYPE_VIEW, $tableSchema);
                     }
                 }
                 if ($result) {
                     $tableSchema = $result;
+
+                    // merge db relationships
+                    if (!empty($references = $this->getTableReferences($refresh))) {
+                        $this->buildTableRelations($tableSchema, $references);
+                    }
+
                     // merge db extras
                     if (!empty($extras = $this->getSchemaExtrasForFields($tableSchema->name))) {
                         foreach ($extras as $extra) {
@@ -717,7 +863,8 @@ class DbSchemaResource extends BaseDbResource
                                     if ('virtual' === $type) {
                                         $extra['is_virtual'] = true;
                                         if (!empty($functionInfo = array_get($extra, 'db_function'))) {
-                                            $type = $extra['type'] = array_get($functionInfo, 'type', DbSimpleTypes::TYPE_STRING);
+                                            $type = $extra['type'] = array_get($functionInfo, 'type',
+                                                DbSimpleTypes::TYPE_STRING);
                                             if ($function = array_get($functionInfo, 'function')) {
                                                 $extra['db_function'] = [
                                                     [
@@ -1885,7 +2032,7 @@ class DbSchemaResource extends BaseDbResource
         $schema = $this->parent->getSchema();
 
         $internalTableName = $table_name;
-        if ((false === strpos($table_name, '.')) && !empty($namingSchema = $schema->getNamingSchema())) {
+        if ((false === strpos($table_name, '.')) && !empty($namingSchema = $this->parent->getNamingSchema())) {
             $internalTableName = $namingSchema . '.' . $table_name;
         }
         $columns = [];
@@ -2158,7 +2305,7 @@ class DbSchemaResource extends BaseDbResource
                 throw new \Exception("Invalid schema detected - no table element for reference type of $name.");
             }
 
-            if ((false === strpos($refTable, '.')) && !empty($namingSchema = $schema->getNamingSchema())) {
+            if ((false === strpos($refTable, '.')) && !empty($namingSchema = $this->parent->getNamingSchema())) {
                 $refTable = $namingSchema . '.' . $refTable;
             }
             $refColumns = array_get($field, 'ref_field', array_get($field, 'ref_fields'));
@@ -2491,228 +2638,126 @@ class DbSchemaResource extends BaseDbResource
     /**
      * @inheritdoc
      */
-    public static function getApiDocInfo($service, array $resource = [])
+    protected function getApiDocPaths()
     {
-        $serviceName = strtolower($service);
+        $service = $this->getServiceName();
         $capitalized = camelize($service);
         $class = trim(strrchr(static::class, '\\'), '\\');
         $pluralClass = str_plural($class);
-        $resourceName = strtolower(array_get($resource, 'name', $class));
-        $path = '/' . $serviceName . '/' . $resourceName;
-        $base = parent::getApiDocInfo($service, $resource);
+        $resourceName = strtolower($this->name);
+        $path = '/' . $resourceName;
 
-        $add = [
-            'post'  => [
-                'tags'        => [$serviceName],
-                'summary'     => 'create' . $capitalized . 'Tables() - Create one or more tables.',
-                'operationId' => 'create' . $capitalized . 'Tables',
-                'parameters'  => [
-                    [
-                        'name'        => 'tables',
-                        'description' => 'Array of table definitions.',
-                        'schema'      => ['$ref' => '#/definitions/TableSchemas'],
-                        'in'          => 'body',
-                        'required'    => true,
+        $paths = [
+            $path                                                => [
+                'get'   => [
+                    'summary'     => 'get' . $capitalized . $pluralClass . '() - Retrieve one or more ' . $pluralClass . '.',
+                    'operationId' => 'get' . $capitalized . $pluralClass,
+                    'parameters'  => [
+                        ApiOptions::documentOption(ApiOptions::FIELDS),
+                        ApiOptions::documentOption(ApiOptions::IDS),
                     ],
-                ],
-                'responses'   => [
-                    '200'     => [
-                        'description' => 'Tables Created',
-                        'schema'      => ['$ref' => '#/definitions/' . $pluralClass . 'Response']
+                    'responses'   => [
+                        '200' => ['$ref' => '#/components/responses/TableSchemas']
                     ],
-                    'default' => [
-                        'description' => 'Error',
-                        'schema'      => ['$ref' => '#/definitions/Error']
-                    ]
+                    'description' =>
+                        'Use the \'ids\' parameter to limit records that are returned. ' .
+                        'By default, all records up to the maximum are returned. ' .
+                        'Use the \'fields\' parameters to limit properties returned for each record. ' .
+                        'By default, all fields are returned for each record.',
                 ],
-                'description' => 'Post data should be a single table definition or an array of table definitions.',
+                'post'  => [
+                    'summary'     => 'create' . $capitalized . 'Tables() - Create one or more tables.',
+                    'operationId' => 'create' . $capitalized . 'Tables',
+                    'requestBody' => [
+                        '$ref' => '#/components/requestBodies/TableSchemas'
+                    ],
+                    'responses'   => [
+                        '200' => ['$ref' => '#/components/responses/TableSchemas']
+                    ],
+                    'description' => 'Post data should be a single table definition or an array of table definitions.',
+                ],
+                'put'   => [
+                    'summary'     => 'replace' . $capitalized . 'Tables() - Update (replace) one or more tables.',
+                    'operationId' => 'replace' . $capitalized . 'Tables',
+                    'requestBody' => [
+                        '$ref' => '#/components/requestBodies/TableSchemas'
+                    ],
+                    'responses'   => [
+                        '200' => ['$ref' => '#/components/responses/TableSchemas']
+                    ],
+                    'description' => 'Post data should be a single table definition or an array of table definitions.',
+                ],
+                'patch' => [
+                    'summary'     => 'update' . $capitalized . 'Tables() - Update (patch) one or more tables.',
+                    'operationId' => 'update' . $capitalized . 'Tables',
+                    'requestBody' => [
+                        '$ref' => '#/components/requestBodies/TableSchemas'
+                    ],
+                    'responses'   => [
+                        '200' => ['$ref' => '#/components/responses/TableSchemas']
+                    ],
+                    'description' => 'Post data should be a single table definition or an array of table definitions.',
+                ],
             ],
-            'put'   => [
-                'tags'        => [$serviceName],
-                'summary'     => 'replace' . $capitalized . 'Tables() - Update (replace) one or more tables.',
-                'operationId' => 'replace' . $capitalized . 'Tables',
-                'parameters'  => [
-                    [
-                        'name'        => 'tables',
-                        'description' => 'Array of table definitions.',
-                        'schema'      => ['$ref' => '#/definitions/TableSchemas'],
-                        'in'          => 'body',
-                        'required'    => true,
-                    ],
-                ],
-                'responses'   => [
-                    '200'     => [
-                        'description' => 'Tables Updated',
-                        'schema'      => ['$ref' => '#/definitions/' . $pluralClass . 'Response']
-                    ],
-                    'default' => [
-                        'description' => 'Error',
-                        'schema'      => ['$ref' => '#/definitions/Error']
-                    ]
-                ],
-                'description' => 'Post data should be a single table definition or an array of table definitions.',
-            ],
-            'patch' => [
-                'tags'        => [$serviceName],
-                'summary'     => 'update' . $capitalized . 'Tables() - Update (patch) one or more tables.',
-                'operationId' => 'update' . $capitalized . 'Tables',
-                'parameters'  => [
-                    [
-                        'name'        => 'tables',
-                        'description' => 'Array of table definitions.',
-                        'schema'      => ['$ref' => '#/definitions/TableSchemas'],
-                        'in'          => 'body',
-                        'required'    => true,
-                    ],
-                ],
-                'responses'   => [
-                    '200'     => [
-                        'description' => 'Tables Updated',
-                        'schema'      => ['$ref' => '#/definitions/' . $pluralClass . 'Response']
-                    ],
-                    'default' => [
-                        'description' => 'Error',
-                        'schema'      => ['$ref' => '#/definitions/Error']
-                    ]
-                ],
-                'description' => 'Post data should be a single table definition or an array of table definitions.',
-            ],
-        ];
-        $base['paths'][$path] = array_merge($base['paths'][$path], $add);
-
-        $apis = [
             $path . '/{table_name}'                              => [
                 'parameters' => [
                     [
                         'name'        => 'table_name',
                         'description' => 'Name of the table to perform operations on.',
-                        'type'        => 'string',
+                        'schema'      => ['type' => 'string'],
                         'in'          => 'path',
                         'required'    => true,
                     ],
                 ],
                 'get'        => [
-                    'tags'        => [$serviceName],
-                    'summary'     => 'describe' .
-                        $capitalized .
-                        'Table() - Retrieve table definition for the given table.',
+                    'summary'     => 'describe' . $capitalized . 'Table() - Retrieve table definition for the given table.',
                     'operationId' => 'describe' . $capitalized . 'Table',
                     'parameters'  => [
-                        [
-                            'name'        => 'refresh',
-                            'description' => 'Refresh any cached copy of the schema.',
-                            'type'        => 'boolean',
-                            'in'          => 'query',
-                        ],
+                        ApiOptions::documentOption(ApiOptions::REFRESH),
                     ],
                     'responses'   => [
-                        '200'     => [
-                            'description' => 'Table Schema',
-                            'schema'      => ['$ref' => '#/definitions/TableSchema']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
+                        '200' => ['$ref' => '#/components/responses/TableSchema']
                     ],
                     'description' => 'This describes the table, its fields and relations to other tables.',
                 ],
                 'post'       => [
-                    'tags'        => [$serviceName],
-                    'summary'     => 'create' .
-                        $capitalized .
-                        'Table() - Create a table with the given properties and fields.',
+                    'summary'     => 'create' . $capitalized . 'Table() - Create a table with the given properties and fields.',
                     'operationId' => 'create' . $capitalized . 'Table',
-                    'parameters'  => [
-                        [
-                            'name'        => 'schema',
-                            'description' => 'Array of table properties and fields definitions.',
-                            'schema'      => ['$ref' => '#/definitions/TableSchema'],
-                            'in'          => 'body',
-                            'required'    => true,
-                        ],
+                    'requestBody' => [
+                        '$ref' => '#/components/requestBodies/TableSchema'
                     ],
                     'responses'   => [
-                        '200'     => [
-                            'description' => 'Success',
-                            'schema'      => ['$ref' => '#/definitions/Success']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
+                        '200' => ['$ref' => '#/components/responses/Success']
                     ],
                     'description' => 'Post data should be an array of field properties.',
                 ],
                 'put'        => [
-                    'tags'        => [$serviceName],
-                    'summary'     => 'replace' .
-                        $capitalized .
-                        'Table() - Update (replace) a table with the given properties.',
+                    'summary'     => 'replace' . $capitalized . 'Table() - Update (replace) a table with the given properties.',
                     'operationId' => 'replace' . $capitalized . 'Table',
-                    'parameters'  => [
-                        [
-                            'name'        => 'schema',
-                            'description' => 'Array of field definitions.',
-                            'schema'      => ['$ref' => '#/definitions/TableSchema'],
-                            'in'          => 'body',
-                            'required'    => true,
-                        ],
+                    'requestBody' => [
+                        '$ref' => '#/components/requestBodies/TableSchema'
                     ],
                     'responses'   => [
-                        '200'     => [
-                            'description' => 'Success',
-                            'schema'      => ['$ref' => '#/definitions/Success']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
+                        '200' => ['$ref' => '#/components/responses/Success']
                     ],
                     'description' => 'Post data should be an array of field properties.',
                 ],
                 'patch'      => [
-                    'tags'        => [$serviceName],
-                    'summary'     => 'update' .
-                        $capitalized .
-                        'Table() - Update (patch) a table with the given properties.',
+                    'summary'     => 'update' . $capitalized . 'Table() - Update (patch) a table with the given properties.',
                     'operationId' => 'update' . $capitalized . 'Table',
-                    'parameters'  => [
-                        [
-                            'name'        => 'schema',
-                            'description' => 'Array of field definitions.',
-                            'schema'      => ['$ref' => '#/definitions/TableSchema'],
-                            'in'          => 'body',
-                            'required'    => true,
-                        ],
+                    'requestBody' => [
+                        '$ref' => '#/components/requestBodies/TableSchema'
                     ],
                     'responses'   => [
-                        '200'     => [
-                            'description' => 'Success',
-                            'schema'      => ['$ref' => '#/definitions/Success']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
+                        '200' => ['$ref' => '#/components/responses/Success']
                     ],
                     'description' => 'Post data should be an array of field properties.',
                 ],
                 'delete'     => [
-                    'tags'        => [$serviceName],
                     'summary'     => 'delete' . $capitalized . 'Table() - Delete (aka drop) the given table.',
                     'operationId' => 'delete' . $capitalized . 'Table',
-                    'parameters'  => [
-                    ],
                     'responses'   => [
-                        '200'     => [
-                            'description' => 'Success',
-                            'schema'      => ['$ref' => '#/definitions/Success']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
+                        '200' => ['$ref' => '#/components/responses/Success']
                     ],
                     'description' => 'Careful, this drops the database table and all of its contents.',
                 ],
@@ -2722,133 +2767,60 @@ class DbSchemaResource extends BaseDbResource
                     [
                         'name'        => 'table_name',
                         'description' => 'Name of the table to perform operations on.',
-                        'type'        => 'string',
+                        'schema'      => ['type' => 'string'],
                         'in'          => 'path',
                         'required'    => true,
                     ],
                 ],
                 'get'        => [
-                    'tags'        => [$serviceName],
-                    'summary'     => 'describe' .
-                        $capitalized .
-                        'Fields() - Retrieve table field definitions for the given table.',
+                    'summary'     => 'describe' . $capitalized . 'Fields() - Retrieve table field definitions for the given table.',
                     'operationId' => 'describe' . $capitalized . 'Fields',
                     'parameters'  => [
-                        [
-                            'name'        => 'refresh',
-                            'description' => 'Refresh any cached copy of the schema.',
-                            'type'        => 'boolean',
-                            'in'          => 'query',
-                        ],
+                        ApiOptions::documentOption(ApiOptions::REFRESH),
                     ],
                     'responses'   => [
-                        '200'     => [
-                            'description' => 'Table Fields Schema',
-                            'schema'      => ['$ref' => '#/definitions/FieldSchemas']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
+                        '200' => ['$ref' => '#/components/responses/FieldSchemas']
                     ],
                     'description' => 'This describes the table\'s fields.',
                 ],
                 'post'       => [
-                    'tags'        => [$serviceName],
-                    'summary'     => 'create' .
-                        $capitalized .
-                        'Fields() - Create table fields.',
+                    'summary'     => 'create' . $capitalized . 'Fields() - Create table fields.',
                     'operationId' => 'create' . $capitalized . 'Fields',
-                    'parameters'  => [
-                        [
-                            'name'        => 'schema',
-                            'description' => 'Array of table properties and fields definitions.',
-                            'schema'      => ['$ref' => '#/definitions/FieldSchemas'],
-                            'in'          => 'body',
-                            'required'    => true,
-                        ],
+                    'requestBody' => [
+                        '$ref' => '#/components/requestBodies/FieldSchemas'
                     ],
                     'responses'   => [
-                        '200'     => [
-                            'description' => 'Success',
-                            'schema'      => ['$ref' => '#/definitions/Success']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
+                        '200' => ['$ref' => '#/components/responses/Success']
                     ],
                     'description' => 'Post data should be an array of fields and their properties.',
                 ],
                 'put'        => [
-                    'tags'        => [$serviceName],
-                    'summary'     => 'replace' .
-                        $capitalized .
-                        'Fields() - Update (replace) table fields with the given properties.',
+                    'summary'     => 'replace' . $capitalized . 'Fields() - Update (replace) table fields with the given properties.',
                     'operationId' => 'replace' . $capitalized . 'Fields',
-                    'parameters'  => [
-                        [
-                            'name'        => 'schema',
-                            'description' => 'Array of field definitions.',
-                            'schema'      => ['$ref' => '#/definitions/FieldSchemas'],
-                            'in'          => 'body',
-                            'required'    => true,
-                        ],
+                    'requestBody' => [
+                        '$ref' => '#/components/requestBodies/FieldSchemas'
                     ],
                     'responses'   => [
-                        '200'     => [
-                            'description' => 'Success',
-                            'schema'      => ['$ref' => '#/definitions/Success']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
+                        '200' => ['$ref' => '#/components/responses/Success']
                     ],
                     'description' => 'Post data should be an array of fields and their properties.',
                 ],
                 'patch'      => [
-                    'tags'        => [$serviceName],
-                    'summary'     => 'update' .
-                        $capitalized .
-                        'Fields() - Update (patch) table fields with the given properties.',
+                    'summary'     => 'update' . $capitalized . 'Fields() - Update (patch) table fields with the given properties.',
                     'operationId' => 'update' . $capitalized . 'Fields',
-                    'parameters'  => [
-                        [
-                            'name'        => 'schema',
-                            'description' => 'Array of field definitions.',
-                            'schema'      => ['$ref' => '#/definitions/FieldSchemas'],
-                            'in'          => 'body',
-                            'required'    => true,
-                        ],
+                    'requestBody' => [
+                        '$ref' => '#/components/requestBodies/FieldSchemas'
                     ],
                     'responses'   => [
-                        '200'     => [
-                            'description' => 'Success',
-                            'schema'      => ['$ref' => '#/definitions/Success']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
+                        '200' => ['$ref' => '#/components/responses/Success']
                     ],
                     'description' => 'Post data should be an array of field properties.',
                 ],
                 'delete'     => [
-                    'tags'        => [$serviceName],
                     'summary'     => 'delete' . $capitalized . 'Fields() - Delete (aka drop) the given fields.',
                     'operationId' => 'delete' . $capitalized . 'Fields',
-                    'parameters'  => [
-                    ],
                     'responses'   => [
-                        '200'     => [
-                            'description' => 'Success',
-                            'schema'      => ['$ref' => '#/definitions/Success']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
+                        '200' => ['$ref' => '#/components/responses/Success']
                     ],
                     'description' => 'Careful, this drops the table column and all of its contents.',
                 ],
@@ -2858,133 +2830,60 @@ class DbSchemaResource extends BaseDbResource
                     [
                         'name'        => 'table_name',
                         'description' => 'Name of the table to perform operations on.',
-                        'type'        => 'string',
+                        'schema'      => ['type' => 'string'],
                         'in'          => 'path',
                         'required'    => true,
                     ],
                 ],
                 'get'        => [
-                    'tags'        => [$serviceName],
-                    'summary'     => 'describe' .
-                        $capitalized .
-                        'Relationships() - Retrieve relationships definition for the given table.',
+                    'summary'     => 'describe' . $capitalized . 'Relationships() - Retrieve relationships definition for the given table.',
                     'operationId' => 'describe' . $capitalized . 'Relationships',
                     'parameters'  => [
-                        [
-                            'name'        => 'refresh',
-                            'description' => 'Refresh any cached copy of the schema.',
-                            'type'        => 'boolean',
-                            'in'          => 'query',
-                        ],
+                        ApiOptions::documentOption(ApiOptions::REFRESH),
                     ],
                     'responses'   => [
-                        '200'     => [
-                            'description' => 'Relationships Schema',
-                            'schema'      => ['$ref' => '#/definitions/RelationshipSchemas']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
+                        '200' => ['$ref' => '#/components/responses/RelationshipSchemas']
                     ],
                     'description' => 'This describes the table relationships to other tables.',
                 ],
                 'post'       => [
-                    'tags'        => [$serviceName],
-                    'summary'     => 'create' .
-                        $capitalized .
-                        'Relationships() - Create table relationships with the given properties.',
+                    'summary'     => 'create' . $capitalized . 'Relationships() - Create table relationships with the given properties.',
                     'operationId' => 'create' . $capitalized . 'Relationships',
-                    'parameters'  => [
-                        [
-                            'name'        => 'schema',
-                            'description' => 'Array of relationship definitions.',
-                            'schema'      => ['$ref' => '#/definitions/RelationshipSchemas'],
-                            'in'          => 'body',
-                            'required'    => true,
-                        ],
+                    'requestBody' => [
+                        '$ref' => '#/components/requestBodies/RelationshipSchemas'
                     ],
                     'responses'   => [
-                        '200'     => [
-                            'description' => 'Success',
-                            'schema'      => ['$ref' => '#/definitions/Success']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
+                        '200' => ['$ref' => '#/components/responses/Success']
                     ],
                     'description' => 'Post data should be an array of relationship properties.',
                 ],
                 'put'        => [
-                    'tags'        => [$serviceName],
-                    'summary'     => 'replace' .
-                        $capitalized .
-                        'Relationships() - Update (replace) table relationships with the given properties.',
+                    'summary'     => 'replace' . $capitalized . 'Relationships() - Update (replace) table relationships with the given properties.',
                     'operationId' => 'replace' . $capitalized . 'Relationships',
-                    'parameters'  => [
-                        [
-                            'name'        => 'schema',
-                            'description' => 'Array of field definitions.',
-                            'schema'      => ['$ref' => '#/definitions/RelationshipSchemas'],
-                            'in'          => 'body',
-                            'required'    => true,
-                        ],
+                    'requestBody' => [
+                        '$ref' => '#/components/requestBodies/RelationshipSchemas'
                     ],
                     'responses'   => [
-                        '200'     => [
-                            'description' => 'Success',
-                            'schema'      => ['$ref' => '#/definitions/Success']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
+                        '200' => ['$ref' => '#/components/responses/Success']
                     ],
                     'description' => 'Post data should be an array of relationship properties.',
                 ],
                 'patch'      => [
-                    'tags'        => [$serviceName],
-                    'summary'     => 'update' .
-                        $capitalized .
-                        'Relationships() - Update (patch) a table with the given properties.',
+                    'summary'     => 'update' . $capitalized . 'Relationships() - Update (patch) a table with the given properties.',
                     'operationId' => 'update' . $capitalized . 'Relationships',
-                    'parameters'  => [
-                        [
-                            'name'        => 'schema',
-                            'description' => 'Array of field definitions.',
-                            'schema'      => ['$ref' => '#/definitions/RelationshipSchemas'],
-                            'in'          => 'body',
-                            'required'    => true,
-                        ],
+                    'requestBody' => [
+                        '$ref' => '#/components/requestBodies/RelationshipSchemas'
                     ],
                     'responses'   => [
-                        '200'     => [
-                            'description' => 'Success',
-                            'schema'      => ['$ref' => '#/definitions/Success']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
+                        '200' => ['$ref' => '#/components/responses/Success']
                     ],
                     'description' => 'Post data should be an array of relationship properties.',
                 ],
                 'delete'     => [
-                    'tags'        => [$serviceName],
                     'summary'     => 'delete' . $capitalized . 'Relationships() - Delete the given table relationships.',
                     'operationId' => 'delete' . $capitalized . 'Relationships',
-                    'parameters'  => [
-                    ],
                     'responses'   => [
-                        '200'     => [
-                            'description' => 'Success',
-                            'schema'      => ['$ref' => '#/definitions/Success']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
+                        '200' => ['$ref' => '#/components/responses/Success']
                     ],
                     'description' => 'Removes the relationships between tables.',
                 ],
@@ -2994,110 +2893,56 @@ class DbSchemaResource extends BaseDbResource
                     [
                         'name'        => 'table_name',
                         'description' => 'Name of the table to perform operations on.',
-                        'type'        => 'string',
+                        'schema'      => ['type' => 'string'],
                         'in'          => 'path',
                         'required'    => true,
                     ],
                     [
                         'name'        => 'field_name',
                         'description' => 'Name of the field to perform operations on.',
-                        'type'        => 'string',
+                        'schema'      => ['type' => 'string'],
                         'in'          => 'path',
                         'required'    => true,
                     ],
                 ],
                 'get'        => [
-                    'tags'        => [$serviceName],
-                    'summary'     => 'describe' .
-                        $capitalized .
-                        'Field() - Retrieve the definition of the given field for the given table.',
+                    'summary'     => 'describe' . $capitalized . 'Field() - Retrieve the definition of the given field for the given table.',
                     'operationId' => 'describe' . $capitalized . 'Field',
                     'parameters'  => [
-                        [
-                            'name'        => 'refresh',
-                            'description' => 'Refresh any cached copy of the schema.',
-                            'type'        => 'boolean',
-                            'in'          => 'query',
-                        ],
+                        ApiOptions::documentOption(ApiOptions::REFRESH),
                     ],
                     'responses'   => [
-                        '200'     => [
-                            'description' => 'Field Schema',
-                            'schema'      => ['$ref' => '#/definitions/FieldSchema']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
+                        '200' => ['$ref' => '#/components/responses/FieldSchema']
                     ],
                     'description' => 'This describes the field and its properties.',
                 ],
                 'put'        => [
-                    'tags'        => [$serviceName],
                     'summary'     => 'replace' . $capitalized . 'Field() - Update one field by identifier.',
                     'operationId' => 'replace' . $capitalized . 'Field',
-                    'parameters'  => [
-                        [
-                            'name'        => 'properties',
-                            'description' => 'Array of field properties.',
-                            'schema'      => ['$ref' => '#/definitions/FieldSchema'],
-                            'in'          => 'body',
-                            'required'    => true,
-                        ],
+                    'requestBody' => [
+                        '$ref' => '#/components/requestBodies/FieldSchema'
                     ],
                     'responses'   => [
-                        '200'     => [
-                            'description' => 'Success',
-                            'schema'      => ['$ref' => '#/definitions/Success']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
+                        '200' => ['$ref' => '#/components/responses/Success']
                     ],
                     'description' => 'Post data should be an array of field properties for the given field.',
                 ],
                 'patch'      => [
-                    'tags'        => [$serviceName],
                     'summary'     => 'update' . $capitalized . 'Field() - Update one field by identifier.',
                     'operationId' => 'update' . $capitalized . 'Field',
-                    'parameters'  => [
-                        [
-                            'name'        => 'properties',
-                            'description' => 'Array of field properties.',
-                            'schema'      => ['$ref' => '#/definitions/FieldSchema'],
-                            'in'          => 'body',
-                            'required'    => true,
-                        ],
+                    'requestBody' => [
+                        '$ref' => '#/components/requestBodies/FieldSchema'
                     ],
                     'responses'   => [
-                        '200'     => [
-                            'description' => 'Success',
-                            'schema'      => ['$ref' => '#/definitions/Success']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
+                        '200' => ['$ref' => '#/components/responses/Success']
                     ],
                     'description' => 'Post data should be an array of field properties for the given field.',
                 ],
                 'delete'     => [
-                    'tags'        => [$serviceName],
-                    'summary'     => 'delete' .
-                        $capitalized .
-                        'Field() - Remove the given field from the given table.',
+                    'summary'     => 'delete' . $capitalized . 'Field() - Remove the given field from the given table.',
                     'operationId' => 'delete' . $capitalized . 'Field',
-                    'parameters'  => [],
                     'responses'   => [
-                        '200'     => [
-                            'description' => 'Success',
-                            'schema'      => ['$ref' => '#/definitions/Success']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
+                        '200' => ['$ref' => '#/components/responses/Success']
                     ],
                     'description' => 'Careful, this drops the database table field/column and all of its contents.',
                 ],
@@ -3107,257 +2952,62 @@ class DbSchemaResource extends BaseDbResource
                     [
                         'name'        => 'table_name',
                         'description' => 'Name of the table to perform operations on.',
-                        'type'        => 'string',
+                        'schema'      => ['type' => 'string'],
                         'in'          => 'path',
                         'required'    => true,
                     ],
                     [
                         'name'        => 'relationship_name',
                         'description' => 'Name of the relationship to perform operations on.',
-                        'type'        => 'string',
+                        'schema'      => ['type' => 'string'],
                         'in'          => 'path',
                         'required'    => true,
                     ],
                 ],
                 'get'        => [
-                    'tags'        => [$serviceName],
-                    'summary'     => 'describe' .
-                        $capitalized .
-                        'Relationship() - Retrieve the definition of the given relationship for the given table.',
+                    'summary'     => 'describe' . $capitalized . 'Relationship() - Retrieve the definition of the given relationship for the given table.',
                     'operationId' => 'describe' . $capitalized . 'Relationship',
                     'parameters'  => [
-                        [
-                            'name'        => 'refresh',
-                            'description' => 'Refresh any cached copy of the schema.',
-                            'type'        => 'boolean',
-                            'in'          => 'query',
-                        ],
+                        ApiOptions::documentOption(ApiOptions::REFRESH),
                     ],
                     'responses'   => [
-                        '200'     => [
-                            'description' => 'Relationship Schema',
-                            'schema'      => ['$ref' => '#/definitions/RelationshipSchema']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
+                        '200' => ['$ref' => '#/components/responses/RelationshipSchema']
                     ],
                     'description' => 'This describes the relationship and its properties.',
                 ],
                 'put'        => [
-                    'tags'        => [$serviceName],
                     'summary'     => 'replace' . $capitalized . 'Relationship() - Update one relationship by identifier.',
                     'operationId' => 'replace' . $capitalized . 'Relationship',
-                    'parameters'  => [
-                        [
-                            'name'        => 'properties',
-                            'description' => 'Array of relationship properties.',
-                            'schema'      => ['$ref' => '#/definitions/RelationshipSchema'],
-                            'in'          => 'body',
-                            'required'    => true,
-                        ],
+                    'requestBody' => [
+                        '$ref' => '#/components/requestBodies/RelationshipSchema'
                     ],
                     'responses'   => [
-                        '200'     => [
-                            'description' => 'Success',
-                            'schema'      => ['$ref' => '#/definitions/Success']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
+                        '200' => ['$ref' => '#/components/responses/Success']
                     ],
                     'description' => 'Post data should be an array of properties for the given relationship.',
                 ],
                 'patch'      => [
-                    'tags'        => [$serviceName],
                     'summary'     => 'update' . $capitalized . 'Relationship() - Update one relationship by identifier.',
                     'operationId' => 'update' . $capitalized . 'Relationship',
-                    'parameters'  => [
-                        [
-                            'name'        => 'properties',
-                            'description' => 'Array of relationship properties.',
-                            'schema'      => ['$ref' => '#/definitions/RelationshipSchema'],
-                            'in'          => 'body',
-                            'required'    => true,
-                        ],
+                    'requestBody' => [
+                        '$ref' => '#/components/requestBodies/RelationshipSchema'
                     ],
                     'responses'   => [
-                        '200'     => [
-                            'description' => 'Success',
-                            'schema'      => ['$ref' => '#/definitions/Success']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
+                        '200' => ['$ref' => '#/components/responses/Success']
                     ],
                     'description' => 'Post data should be an array of properties for the given relationship.',
                 ],
                 'delete'     => [
-                    'tags'        => [$serviceName],
-                    'summary'     => 'delete' .
-                        $capitalized .
-                        'Relationship() - Remove the given relationship from the given table.',
+                    'summary'     => 'delete' . $capitalized . 'Relationship() - Remove the given relationship from the given table.',
                     'operationId' => 'delete' . $capitalized . 'Relationship',
-                    'parameters'  => [],
                     'responses'   => [
-                        '200'     => [
-                            'description' => 'Success',
-                            'schema'      => ['$ref' => '#/definitions/Success']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
+                        '200' => ['$ref' => '#/components/responses/Success']
                     ],
                     'description' => 'Removes the relationship between the tables given.',
                 ],
             ],
-            $path . '/{table_name}/{field_name}'                 => [
-                'parameters' => [
-                    [
-                        'name'        => 'table_name',
-                        'description' => 'Name of the table to perform operations on.',
-                        'type'        => 'string',
-                        'in'          => 'path',
-                        'required'    => true,
-                    ],
-                    [
-                        'name'        => 'field_name',
-                        'description' => 'Name of the field to perform operations on.',
-                        'type'        => 'string',
-                        'in'          => 'path',
-                        'required'    => true,
-                    ],
-                ],
-                'get'        => [
-                    'tags'        => [$serviceName],
-                    'summary'     => 'describe' .
-                        $capitalized .
-                        'Field() - Retrieve the definition of the given field for the given table. DEPRECATED',
-                    'operationId' => 'describe' . $capitalized . 'FieldDeprecated',
-                    'parameters'  => [
-                        [
-                            'name'        => 'refresh',
-                            'description' => 'Refresh any cached copy of the schema.',
-                            'type'        => 'boolean',
-                            'in'          => 'query',
-                        ],
-                    ],
-                    'responses'   => [
-                        '200'     => [
-                            'description' => 'Field Schema',
-                            'schema'      => ['$ref' => '#/definitions/FieldSchema']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
-                    ],
-                    'description' => 'This describes the field and its properties.',
-                ],
-                'put'        => [
-                    'tags'        => [$serviceName],
-                    'summary'     => 'replace' . $capitalized . 'Field() - Update one field by identifier. DEPRECATED',
-                    'operationId' => 'replace' . $capitalized . 'FieldDeprecated',
-                    'parameters'  => [
-                        [
-                            'name'        => 'properties',
-                            'description' => 'Array of field properties.',
-                            'schema'      => ['$ref' => '#/definitions/FieldSchema'],
-                            'in'          => 'body',
-                            'required'    => true,
-                        ],
-                    ],
-                    'responses'   => [
-                        '200'     => [
-                            'description' => 'Success',
-                            'schema'      => ['$ref' => '#/definitions/Success']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
-                    ],
-                    'description' => 'Post data should be an array of field properties for the given field.',
-                ],
-                'patch'      => [
-                    'tags'        => [$serviceName],
-                    'summary'     => 'update' . $capitalized . 'Field() - Update one field by identifier. DEPRECATED',
-                    'operationId' => 'update' . $capitalized . 'FieldDeprecated',
-                    'parameters'  => [
-                        [
-                            'name'        => 'properties',
-                            'description' => 'Array of field properties.',
-                            'schema'      => ['$ref' => '#/definitions/FieldSchema'],
-                            'in'          => 'body',
-                            'required'    => true,
-                        ],
-                    ],
-                    'responses'   => [
-                        '200'     => [
-                            'description' => 'Success',
-                            'schema'      => ['$ref' => '#/definitions/Success']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
-                    ],
-                    'description' => 'Post data should be an array of field properties for the given field.',
-                ],
-                'delete'     => [
-                    'tags'        => [$serviceName],
-                    'summary'     => 'delete' .
-                        $capitalized .
-                        'Field() - Remove the given field from the given table. DEPRECATED',
-                    'operationId' => 'delete' . $capitalized . 'FieldDeprecated',
-                    'parameters'  => [],
-                    'responses'   => [
-                        '200'     => [
-                            'description' => 'Success',
-                            'schema'      => ['$ref' => '#/definitions/Success']
-                        ],
-                        'default' => [
-                            'description' => 'Error',
-                            'schema'      => ['$ref' => '#/definitions/Error']
-                        ]
-                    ],
-                    'description' => 'Careful, this drops the database table field/column and all of its contents.',
-                ],
-            ],
         ];
 
-        $wrapper = ResourcesWrapper::getWrapper();
-        $models = [
-            'Tables' => [
-                'type'       => 'object',
-                'properties' => [
-                    $wrapper => [
-                        'type'        => 'array',
-                        'description' => 'Array of tables and their properties.',
-                        'items'       => [
-                            '$ref' => '#/definitions/Table',
-                        ],
-                    ],
-                ],
-            ],
-            'Table'  => [
-                'type'       => 'object',
-                'properties' => [
-                    'name' => [
-                        'type'        => 'string',
-                        'description' => 'Name of the table.',
-                    ],
-                ],
-            ],
-        ];
-
-        $base['paths'] = array_merge($base['paths'], $apis);
-        $base['definitions'] = array_merge($base['definitions'], $models, static::getApiDocCommonModels());
-
-        return $base;
+        return $paths;
     }
 }
