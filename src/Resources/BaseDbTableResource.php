@@ -2262,6 +2262,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                                 }
                             }
                         }
+                        $tableSchema->discoveryCompleted = true;
                         $this->parent->addToCache($cacheKey, $tableSchema, true);
                     }
                 }
