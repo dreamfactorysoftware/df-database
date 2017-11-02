@@ -4369,7 +4369,12 @@ abstract class BaseDbTableResource extends BaseDbResource
         $paths = [
             $path                        => [
                 'get' => [
-                    'summary'     => 'get' . $capitalized . $pluralClass . '() - Retrieve one or more ' . $pluralClass . '.',
+                    'summary'     => 'Retrieve one or more ' . $pluralClass . '.',
+                    'description' =>
+                        'Use the \'ids\' parameter to limit records that are returned. ' .
+                        'By default, all records up to the maximum are returned. ' .
+                        'Use the \'fields\' parameters to limit properties returned for each record. ' .
+                        'By default, all fields are returned for each record.',
                     'operationId' => 'get' . $capitalized . $pluralClass,
                     'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::FIELDS),
@@ -4378,11 +4383,6 @@ abstract class BaseDbTableResource extends BaseDbResource
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/TableSchemas']
                     ],
-                    'description' =>
-                        'Use the \'ids\' parameter to limit records that are returned. ' .
-                        'By default, all records up to the maximum are returned. ' .
-                        'Use the \'fields\' parameters to limit properties returned for each record. ' .
-                        'By default, all fields are returned for each record.',
                 ],
             ],
             $path . '/{table_name}'      => [
@@ -4396,8 +4396,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                     ],
                 ],
                 'get'        => [
-                    'summary'     => 'get' . $capitalized . 'Records() - Retrieve one or more records.',
-                    'operationId' => 'get' . $capitalized . 'Records',
+                    'summary'     => 'Retrieve one or more records.',
                     'description' =>
                         'Set the **filter** parameter to a SQL WHERE clause (optional native filter accepted in some scenarios) ' .
                         'to limit records returned or leave it blank to return all records up to the maximum limit. ' .
@@ -4411,6 +4410,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                         'Alternatively, to send the **ids** as posted data, use the getRecordsByPost() POST request. ' .
                         'Use the **fields** parameter to limit properties returned for each record. ' .
                         'By default, all fields are returned for all records. ',
+                    'operationId' => 'get' . $capitalized . 'Records',
                     'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::FIELDS),
                         ApiOptions::documentOption(ApiOptions::RELATED),
@@ -4434,12 +4434,11 @@ abstract class BaseDbTableResource extends BaseDbResource
                     ],
                 ],
                 'post'       => [
-                    'summary'     => 'create' . $capitalized . 'Records() - Create one or more records.',
-                    'operationId' => 'create' . $capitalized . 'Records',
-                    'description' =>
-                        'Posted data should be an array of records wrapped in a **record** element. ' .
+                    'summary'     => 'Create one or more records.',
+                    'description' => 'Posted data should be an array of records wrapped in a **record** element. ' .
                         'By default, only the id property of the record is returned on success. ' .
                         'Use **fields** parameter to return more info.',
+                    'operationId' => 'create' . $capitalized . 'Records',
                     'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::FIELDS),
                         ApiOptions::documentOption(ApiOptions::RELATED),
@@ -4462,10 +4461,8 @@ abstract class BaseDbTableResource extends BaseDbResource
                     ],
                 ],
                 'put'        => [
-                    'summary'     => 'replace' . $capitalized . 'Records() - Update (replace) one or more records.',
-                    'operationId' => 'replace' . $capitalized . 'Records',
-                    'description' =>
-                        'Post data should be an array of records wrapped in a **' .
+                    'summary'     => 'Update (replace) one or more records.',
+                    'description' => 'Post data should be an array of records wrapped in a **' .
                         $wrapper .
                         '** tag. ' .
                         'If ids or filter is used, posted body should be a single record with name-value pairs ' .
@@ -4476,6 +4473,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                         'Filter can be included via URL parameter or included in the posted body. ' .
                         'By default, only the id property of the record is returned on success. ' .
                         'Use **fields** parameter to return more info.',
+                    'operationId' => 'replace' . $capitalized . 'Records',
                     'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::FIELDS),
                         ApiOptions::documentOption(ApiOptions::RELATED),
@@ -4494,15 +4492,14 @@ abstract class BaseDbTableResource extends BaseDbResource
                     ],
                 ],
                 'patch'      => [
-                    'summary'     => 'update' . $capitalized . 'Records() - Update (patch) one or more records.',
-                    'operationId' => 'update' . $capitalized . 'Records',
-                    'description' =>
-                        'Post data should be an array of records containing at least the identifying fields for each record. ' .
+                    'summary'     => 'Update (patch) one or more records.',
+                    'description' => 'Post data should be an array of records containing at least the identifying fields for each record. ' .
                         'Posted body should be a single record with name-value pairs to update wrapped in a **record** tag. ' .
                         'Ids can be included via URL parameter or included in the posted body. ' .
                         'Filter can be included via URL parameter or included in the posted body. ' .
                         'By default, only the id property of the record is returned on success. ' .
                         'Use **fields** parameter to return more info.',
+                    'operationId' => 'update' . $capitalized . 'Records',
                     'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::FIELDS),
                         ApiOptions::documentOption(ApiOptions::RELATED),
@@ -4521,10 +4518,8 @@ abstract class BaseDbTableResource extends BaseDbResource
                     ],
                 ],
                 'delete'     => [
-                    'summary'     => 'delete' . $capitalized . 'Records() - Delete one or more records.',
-                    'operationId' => 'delete' . $capitalized . 'Records',
-                    'description' =>
-                        'Set the **ids** parameter to a list of record identifying (primary key) values to delete specific records. ' .
+                    'summary'     => 'Delete one or more records.',
+                    'description' => 'Set the **ids** parameter to a list of record identifying (primary key) values to delete specific records. ' .
                         'Alternatively, to delete records by a large list of ids, pass the ids in the **body**. ' .
                         'By default, only the id property of the record is returned on success, use **fields** to return more info. ' .
                         'Set the **filter** parameter to a SQL WHERE clause to delete specific records, ' .
@@ -4533,6 +4528,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                         'By default, only the id property of the record is returned on success, use **fields** to return more info. ' .
                         'Set the **body** to an array of records, minimally including the identifying fields, to delete specific records. ' .
                         'By default, only the id property of the record is returned on success, use **fields** to return more info. ',
+                    'operationId' => 'delete' . $capitalized . 'Records',
                     'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::FIELDS),
                         ApiOptions::documentOption(ApiOptions::RELATED),
@@ -4570,11 +4566,10 @@ abstract class BaseDbTableResource extends BaseDbResource
                     ],
                 ],
                 'get'        => [
-                    'summary'     => 'get' . $capitalized . 'Record() - Retrieve one record by identifier.',
-                    'operationId' => 'get' . $capitalized . 'Record',
-                    'description' =>
-                        'Use the **fields** parameter to limit properties that are returned. ' .
+                    'summary'     => 'Retrieve one record by identifier.',
+                    'description' => 'Use the **fields** parameter to limit properties that are returned. ' .
                         'By default, all fields are returned.',
+                    'operationId' => 'get' . $capitalized . 'Record',
                     'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::FIELDS),
                         ApiOptions::documentOption(ApiOptions::RELATED),
@@ -4586,13 +4581,10 @@ abstract class BaseDbTableResource extends BaseDbResource
                     ],
                 ],
                 'put'        => [
-                    'summary'     => 'replace' .
-                        $capitalized .
-                        'Record() - Replace the content of one record by identifier.',
-                    'operationId' => 'replace' . $capitalized . 'Record',
-                    'description' =>
-                        'Post data should be an array of fields for a single record. ' .
+                    'summary'     => 'Replace the content of one record by identifier.',
+                    'description' => 'Post data should be an array of fields for a single record. ' .
                         'Use the **fields** parameter to return more properties. By default, the id is returned.',
+                    'operationId' => 'replace' . $capitalized . 'Record',
                     'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::FIELDS),
                         ApiOptions::documentOption(ApiOptions::RELATED),
@@ -4607,13 +4599,10 @@ abstract class BaseDbTableResource extends BaseDbResource
                     ],
                 ],
                 'patch'      => [
-                    'summary'     => 'update' .
-                        $capitalized .
-                        'Record() - Update (patch) one record by identifier.',
-                    'operationId' => 'update' . $capitalized . 'Record',
-                    'description' =>
-                        'Post data should be an array of fields for a single record. ' .
+                    'summary'     => 'Update (patch) one record by identifier.',
+                    'description' => 'Post data should be an array of fields for a single record. ' .
                         'Use the **fields** parameter to return more properties. By default, the id is returned.',
+                    'operationId' => 'update' . $capitalized . 'Record',
                     'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::FIELDS),
                         ApiOptions::documentOption(ApiOptions::RELATED),
@@ -4628,9 +4617,9 @@ abstract class BaseDbTableResource extends BaseDbResource
                     ],
                 ],
                 'delete'     => [
-                    'summary'     => 'delete' . $capitalized . 'Record() - Delete one record by identifier.',
-                    'operationId' => 'delete' . $capitalized . 'Record',
+                    'summary'     => 'Delete one record by identifier.',
                     'description' => 'Use the **fields** parameter to return more deleted properties. By default, the id is returned.',
+                    'operationId' => 'delete' . $capitalized . 'Record',
                     'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::FIELDS),
                         ApiOptions::documentOption(ApiOptions::RELATED),

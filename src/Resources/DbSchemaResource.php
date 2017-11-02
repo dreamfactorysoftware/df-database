@@ -2651,7 +2651,12 @@ class DbSchemaResource extends BaseDbResource
         $paths = [
             $path                                                => [
                 'get'   => [
-                    'summary'     => 'get' . $capitalized . $pluralClass . '() - Retrieve one or more ' . $pluralClass . '.',
+                    'summary'     => 'Retrieve one or more ' . $pluralClass . '.',
+                    'description' =>
+                        'Use the \'ids\' parameter to limit records that are returned. ' .
+                        'By default, all records up to the maximum are returned. ' .
+                        'Use the \'fields\' parameters to limit properties returned for each record. ' .
+                        'By default, all fields are returned for each record.',
                     'operationId' => 'get' . $capitalized . $pluralClass,
                     'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::FIELDS),
@@ -2660,14 +2665,10 @@ class DbSchemaResource extends BaseDbResource
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/TableSchemas']
                     ],
-                    'description' =>
-                        'Use the \'ids\' parameter to limit records that are returned. ' .
-                        'By default, all records up to the maximum are returned. ' .
-                        'Use the \'fields\' parameters to limit properties returned for each record. ' .
-                        'By default, all fields are returned for each record.',
                 ],
                 'post'  => [
-                    'summary'     => 'create' . $capitalized . 'Tables() - Create one or more tables.',
+                    'summary'     => 'Create one or more tables.',
+                    'description' => 'Post data should be a single table definition or an array of table definitions.',
                     'operationId' => 'create' . $capitalized . 'Tables',
                     'requestBody' => [
                         '$ref' => '#/components/requestBodies/TableSchemas'
@@ -2675,10 +2676,10 @@ class DbSchemaResource extends BaseDbResource
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/TableSchemas']
                     ],
-                    'description' => 'Post data should be a single table definition or an array of table definitions.',
                 ],
                 'put'   => [
-                    'summary'     => 'replace' . $capitalized . 'Tables() - Update (replace) one or more tables.',
+                    'summary'     => 'Update (replace) one or more tables.',
+                    'description' => 'Post data should be a single table definition or an array of table definitions.',
                     'operationId' => 'replace' . $capitalized . 'Tables',
                     'requestBody' => [
                         '$ref' => '#/components/requestBodies/TableSchemas'
@@ -2686,10 +2687,10 @@ class DbSchemaResource extends BaseDbResource
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/TableSchemas']
                     ],
-                    'description' => 'Post data should be a single table definition or an array of table definitions.',
                 ],
                 'patch' => [
-                    'summary'     => 'update' . $capitalized . 'Tables() - Update (patch) one or more tables.',
+                    'summary'     => 'Update (patch) one or more tables.',
+                    'description' => 'Post data should be a single table definition or an array of table definitions.',
                     'operationId' => 'update' . $capitalized . 'Tables',
                     'requestBody' => [
                         '$ref' => '#/components/requestBodies/TableSchemas'
@@ -2697,7 +2698,6 @@ class DbSchemaResource extends BaseDbResource
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/TableSchemas']
                     ],
-                    'description' => 'Post data should be a single table definition or an array of table definitions.',
                 ],
             ],
             $path . '/{table_name}'                              => [
@@ -2711,7 +2711,8 @@ class DbSchemaResource extends BaseDbResource
                     ],
                 ],
                 'get'        => [
-                    'summary'     => 'describe' . $capitalized . 'Table() - Retrieve table definition for the given table.',
+                    'summary'     => 'Retrieve table definition for the given table.',
+                    'description' => 'This describes the table, its fields and relations to other tables.',
                     'operationId' => 'describe' . $capitalized . 'Table',
                     'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::REFRESH),
@@ -2719,10 +2720,10 @@ class DbSchemaResource extends BaseDbResource
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/TableSchema']
                     ],
-                    'description' => 'This describes the table, its fields and relations to other tables.',
                 ],
                 'post'       => [
-                    'summary'     => 'create' . $capitalized . 'Table() - Create a table with the given properties and fields.',
+                    'summary'     => 'Create a table with the given properties and fields.',
+                    'description' => 'Post data should be an array of field properties.',
                     'operationId' => 'create' . $capitalized . 'Table',
                     'requestBody' => [
                         '$ref' => '#/components/requestBodies/TableSchema'
@@ -2730,10 +2731,10 @@ class DbSchemaResource extends BaseDbResource
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/Success']
                     ],
-                    'description' => 'Post data should be an array of field properties.',
                 ],
                 'put'        => [
-                    'summary'     => 'replace' . $capitalized . 'Table() - Update (replace) a table with the given properties.',
+                    'summary'     => 'Update (replace) a table with the given properties.',
+                    'description' => 'Post data should be an array of field properties.',
                     'operationId' => 'replace' . $capitalized . 'Table',
                     'requestBody' => [
                         '$ref' => '#/components/requestBodies/TableSchema'
@@ -2741,10 +2742,10 @@ class DbSchemaResource extends BaseDbResource
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/Success']
                     ],
-                    'description' => 'Post data should be an array of field properties.',
                 ],
                 'patch'      => [
-                    'summary'     => 'update' . $capitalized . 'Table() - Update (patch) a table with the given properties.',
+                    'summary'     => 'Update (patch) a table with the given properties.',
+                    'description' => 'Post data should be an array of field properties.',
                     'operationId' => 'update' . $capitalized . 'Table',
                     'requestBody' => [
                         '$ref' => '#/components/requestBodies/TableSchema'
@@ -2752,15 +2753,14 @@ class DbSchemaResource extends BaseDbResource
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/Success']
                     ],
-                    'description' => 'Post data should be an array of field properties.',
                 ],
                 'delete'     => [
-                    'summary'     => 'delete' . $capitalized . 'Table() - Delete (aka drop) the given table.',
+                    'summary'     => 'Delete (aka drop) the given table.',
+                    'description' => 'Careful, this drops the database table and all of its contents.',
                     'operationId' => 'delete' . $capitalized . 'Table',
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/Success']
                     ],
-                    'description' => 'Careful, this drops the database table and all of its contents.',
                 ],
             ],
             $path . '/{table_name}/_field'                       => [
@@ -2774,7 +2774,8 @@ class DbSchemaResource extends BaseDbResource
                     ],
                 ],
                 'get'        => [
-                    'summary'     => 'describe' . $capitalized . 'Fields() - Retrieve table field definitions for the given table.',
+                    'summary'     => 'Retrieve table field definitions for the given table.',
+                    'description' => 'This describes the table\'s fields.',
                     'operationId' => 'describe' . $capitalized . 'Fields',
                     'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::REFRESH),
@@ -2782,10 +2783,10 @@ class DbSchemaResource extends BaseDbResource
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/FieldSchemas']
                     ],
-                    'description' => 'This describes the table\'s fields.',
                 ],
                 'post'       => [
-                    'summary'     => 'create' . $capitalized . 'Fields() - Create table fields.',
+                    'summary'     => 'Create table fields.',
+                    'description' => 'Post data should be an array of fields and their properties.',
                     'operationId' => 'create' . $capitalized . 'Fields',
                     'requestBody' => [
                         '$ref' => '#/components/requestBodies/FieldSchemas'
@@ -2793,10 +2794,10 @@ class DbSchemaResource extends BaseDbResource
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/Success']
                     ],
-                    'description' => 'Post data should be an array of fields and their properties.',
                 ],
                 'put'        => [
-                    'summary'     => 'replace' . $capitalized . 'Fields() - Update (replace) table fields with the given properties.',
+                    'summary'     => 'Update (replace) table fields with the given properties.',
+                    'description' => 'Post data should be an array of fields and their properties.',
                     'operationId' => 'replace' . $capitalized . 'Fields',
                     'requestBody' => [
                         '$ref' => '#/components/requestBodies/FieldSchemas'
@@ -2804,10 +2805,10 @@ class DbSchemaResource extends BaseDbResource
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/Success']
                     ],
-                    'description' => 'Post data should be an array of fields and their properties.',
                 ],
                 'patch'      => [
-                    'summary'     => 'update' . $capitalized . 'Fields() - Update (patch) table fields with the given properties.',
+                    'summary'     => 'Update (patch) table fields with the given properties.',
+                    'description' => 'Post data should be an array of field properties.',
                     'operationId' => 'update' . $capitalized . 'Fields',
                     'requestBody' => [
                         '$ref' => '#/components/requestBodies/FieldSchemas'
@@ -2815,15 +2816,14 @@ class DbSchemaResource extends BaseDbResource
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/Success']
                     ],
-                    'description' => 'Post data should be an array of field properties.',
                 ],
                 'delete'     => [
-                    'summary'     => 'delete' . $capitalized . 'Fields() - Delete (aka drop) the given fields.',
+                    'summary'     => 'Delete (aka drop) the given fields.',
+                    'description' => 'Careful, this drops the table column and all of its contents.',
                     'operationId' => 'delete' . $capitalized . 'Fields',
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/Success']
                     ],
-                    'description' => 'Careful, this drops the table column and all of its contents.',
                 ],
             ],
             $path . '/{table_name}/_related'                     => [
@@ -2837,7 +2837,8 @@ class DbSchemaResource extends BaseDbResource
                     ],
                 ],
                 'get'        => [
-                    'summary'     => 'describe' . $capitalized . 'Relationships() - Retrieve relationships definition for the given table.',
+                    'summary'     => 'Retrieve relationships definition for the given table.',
+                    'description' => 'This describes the table relationships to other tables.',
                     'operationId' => 'describe' . $capitalized . 'Relationships',
                     'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::REFRESH),
@@ -2845,10 +2846,10 @@ class DbSchemaResource extends BaseDbResource
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/RelationshipSchemas']
                     ],
-                    'description' => 'This describes the table relationships to other tables.',
                 ],
                 'post'       => [
-                    'summary'     => 'create' . $capitalized . 'Relationships() - Create table relationships with the given properties.',
+                    'summary'     => 'Create table relationships with the given properties.',
+                    'description' => 'Post data should be an array of relationship properties.',
                     'operationId' => 'create' . $capitalized . 'Relationships',
                     'requestBody' => [
                         '$ref' => '#/components/requestBodies/RelationshipSchemas'
@@ -2856,10 +2857,10 @@ class DbSchemaResource extends BaseDbResource
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/Success']
                     ],
-                    'description' => 'Post data should be an array of relationship properties.',
                 ],
                 'put'        => [
-                    'summary'     => 'replace' . $capitalized . 'Relationships() - Update (replace) table relationships with the given properties.',
+                    'summary'     => 'Update (replace) table relationships with the given properties.',
+                    'description' => 'Post data should be an array of relationship properties.',
                     'operationId' => 'replace' . $capitalized . 'Relationships',
                     'requestBody' => [
                         '$ref' => '#/components/requestBodies/RelationshipSchemas'
@@ -2867,10 +2868,10 @@ class DbSchemaResource extends BaseDbResource
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/Success']
                     ],
-                    'description' => 'Post data should be an array of relationship properties.',
                 ],
                 'patch'      => [
-                    'summary'     => 'update' . $capitalized . 'Relationships() - Update (patch) a table with the given properties.',
+                    'summary'     => 'Update (patch) a table with the given properties.',
+                    'description' => 'Post data should be an array of relationship properties.',
                     'operationId' => 'update' . $capitalized . 'Relationships',
                     'requestBody' => [
                         '$ref' => '#/components/requestBodies/RelationshipSchemas'
@@ -2878,15 +2879,14 @@ class DbSchemaResource extends BaseDbResource
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/Success']
                     ],
-                    'description' => 'Post data should be an array of relationship properties.',
                 ],
                 'delete'     => [
-                    'summary'     => 'delete' . $capitalized . 'Relationships() - Delete the given table relationships.',
+                    'summary'     => 'Delete the given table relationships.',
+                    'description' => 'Removes the relationships between tables.',
                     'operationId' => 'delete' . $capitalized . 'Relationships',
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/Success']
                     ],
-                    'description' => 'Removes the relationships between tables.',
                 ],
             ],
             $path . '/{table_name}/_field/{field_name}'          => [
@@ -2907,7 +2907,8 @@ class DbSchemaResource extends BaseDbResource
                     ],
                 ],
                 'get'        => [
-                    'summary'     => 'describe' . $capitalized . 'Field() - Retrieve the definition of the given field for the given table.',
+                    'summary'     => 'Retrieve the definition of the given field for the given table.',
+                    'description' => 'This describes the field and its properties.',
                     'operationId' => 'describe' . $capitalized . 'Field',
                     'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::REFRESH),
@@ -2915,10 +2916,10 @@ class DbSchemaResource extends BaseDbResource
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/FieldSchema']
                     ],
-                    'description' => 'This describes the field and its properties.',
                 ],
                 'put'        => [
-                    'summary'     => 'replace' . $capitalized . 'Field() - Update one field by identifier.',
+                    'summary'     => 'Update one field by identifier.',
+                    'description' => 'Post data should be an array of field properties for the given field.',
                     'operationId' => 'replace' . $capitalized . 'Field',
                     'requestBody' => [
                         '$ref' => '#/components/requestBodies/FieldSchema'
@@ -2926,10 +2927,10 @@ class DbSchemaResource extends BaseDbResource
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/Success']
                     ],
-                    'description' => 'Post data should be an array of field properties for the given field.',
                 ],
                 'patch'      => [
-                    'summary'     => 'update' . $capitalized . 'Field() - Update one field by identifier.',
+                    'summary'     => 'Update one field by identifier.',
+                    'description' => 'Post data should be an array of field properties for the given field.',
                     'operationId' => 'update' . $capitalized . 'Field',
                     'requestBody' => [
                         '$ref' => '#/components/requestBodies/FieldSchema'
@@ -2937,15 +2938,14 @@ class DbSchemaResource extends BaseDbResource
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/Success']
                     ],
-                    'description' => 'Post data should be an array of field properties for the given field.',
                 ],
                 'delete'     => [
-                    'summary'     => 'delete' . $capitalized . 'Field() - Remove the given field from the given table.',
+                    'summary'     => 'Remove the given field from the given table.',
+                    'description' => 'Careful, this drops the database table field/column and all of its contents.',
                     'operationId' => 'delete' . $capitalized . 'Field',
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/Success']
                     ],
-                    'description' => 'Careful, this drops the database table field/column and all of its contents.',
                 ],
             ],
             $path . '/{table_name}/_related/{relationship_name}' => [
@@ -2966,7 +2966,8 @@ class DbSchemaResource extends BaseDbResource
                     ],
                 ],
                 'get'        => [
-                    'summary'     => 'describe' . $capitalized . 'Relationship() - Retrieve the definition of the given relationship for the given table.',
+                    'summary'     => 'Retrieve the definition of the given relationship for the given table.',
+                    'description' => 'This describes the relationship and its properties.',
                     'operationId' => 'describe' . $capitalized . 'Relationship',
                     'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::REFRESH),
@@ -2974,10 +2975,10 @@ class DbSchemaResource extends BaseDbResource
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/RelationshipSchema']
                     ],
-                    'description' => 'This describes the relationship and its properties.',
                 ],
                 'put'        => [
-                    'summary'     => 'replace' . $capitalized . 'Relationship() - Update one relationship by identifier.',
+                    'summary'     => 'Update one relationship by identifier.',
+                    'description' => 'Post data should be an array of properties for the given relationship.',
                     'operationId' => 'replace' . $capitalized . 'Relationship',
                     'requestBody' => [
                         '$ref' => '#/components/requestBodies/RelationshipSchema'
@@ -2985,10 +2986,10 @@ class DbSchemaResource extends BaseDbResource
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/Success']
                     ],
-                    'description' => 'Post data should be an array of properties for the given relationship.',
                 ],
                 'patch'      => [
-                    'summary'     => 'update' . $capitalized . 'Relationship() - Update one relationship by identifier.',
+                    'summary'     => 'Update one relationship by identifier.',
+                    'description' => 'Post data should be an array of properties for the given relationship.',
                     'operationId' => 'update' . $capitalized . 'Relationship',
                     'requestBody' => [
                         '$ref' => '#/components/requestBodies/RelationshipSchema'
@@ -2996,15 +2997,14 @@ class DbSchemaResource extends BaseDbResource
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/Success']
                     ],
-                    'description' => 'Post data should be an array of properties for the given relationship.',
                 ],
                 'delete'     => [
-                    'summary'     => 'delete' . $capitalized . 'Relationship() - Remove the given relationship from the given table.',
+                    'summary'     => 'Remove the given relationship from the given table.',
+                    'description' => 'Removes the relationship between the tables given.',
                     'operationId' => 'delete' . $capitalized . 'Relationship',
                     'responses'   => [
                         '200' => ['$ref' => '#/components/responses/Success']
                     ],
-                    'description' => 'Removes the relationship between the tables given.',
                 ],
             ],
         ];
