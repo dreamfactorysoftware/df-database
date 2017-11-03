@@ -177,7 +177,7 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
     public function getDefaultSchema()
     {
         if (!$this->defaultSchema) {
-            if (is_null($result = $this->getFromCache('default_schema'))) {
+            if (is_null($this->defaultSchema = $this->getFromCache('default_schema'))) {
                 $this->defaultSchema = $this->getSchema()->getDefaultSchema();
                 $this->addToCache('default_schema', $this->defaultSchema, true);
             }
