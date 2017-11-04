@@ -17,7 +17,7 @@ trait TableDescriber
                         'type'        => 'array',
                         'description' => 'An array of table definitions.',
                         'items'       => [
-                            '$ref' => '#/definitions/TableSchema',
+                            '$ref' => '#/components/schemas/TableSchema',
                         ],
                     ],
                 ],
@@ -49,14 +49,14 @@ trait TableDescriber
                         'type'        => 'array',
                         'description' => 'An array of available fields in each record.',
                         'items'       => [
-                            '$ref' => '#/definitions/FieldSchema',
+                            '$ref' => '#/components/schemas/FieldSchema',
                         ],
                     ],
                     'related'     => [
                         'type'        => 'array',
                         'description' => 'An array of available relationships to other tables.',
                         'items'       => [
-                            '$ref' => '#/definitions/RelationshipSchema',
+                            '$ref' => '#/components/schemas/RelationshipSchema',
                         ],
                     ],
                 ],
@@ -68,7 +68,7 @@ trait TableDescriber
                         'type'        => 'array',
                         'description' => 'An array of field definitions.',
                         'items'       => [
-                            '$ref' => '#/definitions/FieldSchema',
+                            '$ref' => '#/components/schemas/FieldSchema',
                         ],
                     ],
                 ],
@@ -170,7 +170,7 @@ trait TableDescriber
                         'type'        => 'array',
                         'description' => 'An array of relationship definitions.',
                         'items'       => [
-                            '$ref' => '#/definitions/RelationshipSchema',
+                            '$ref' => '#/components/schemas/RelationshipSchema',
                         ],
                     ],
                 ],
