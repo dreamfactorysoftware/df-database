@@ -91,7 +91,7 @@ class DbSchemaResource extends BaseDbResource
      */
     public function listResources($schema = null, $refresh = false)
     {
-        $result = $this->getTableNames($schema, $refresh);
+        $result = $this->parent->getTableNames($schema, $refresh);
         $resources = [];
         foreach ($result as $table) {
             if (!empty($this->getPermissions($table->name))) {
@@ -131,7 +131,7 @@ class DbSchemaResource extends BaseDbResource
 
         $refresh = $this->request->getParameterAsBool(ApiOptions::REFRESH);
         $schema = $this->request->getParameter(ApiOptions::SCHEMA, '');
-        $result = $this->getTableNames($schema, $refresh);
+        $result = $this->parent->getTableNames($schema, $refresh);
         $resources = [];
         foreach ($result as $table) {
             $access = $this->getPermissions($table->name);
@@ -158,63 +158,6 @@ class DbSchemaResource extends BaseDbResource
         }
 
         return $this;
-    }
-
-    /**
-     * @param string $schema
-     * @param bool   $refresh
-     * @return TableSchema[]
-     */
-    protected function getTableNames($schema = null, $refresh = false)
-    {
-        if ($refresh || (is_null($tables = $this->parent->getFromCache('tables')))) {
-            $tables = [];
-            $defaultSchema = $this->parent->getNamingSchema();
-            foreach ($this->parent->getSchemas($refresh) as $schemaName) {
-                $addSchema = (!empty($schemaName) && ($defaultSchema !== $schemaName));
-
-                $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE, $schemaName);
-
-                // Until views are separated as separate resource
-                if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
-                    $views = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schemaName);
-                    $result = array_merge($result, $views);
-                }
-
-                foreach ($result as &$table) {
-                    if ($addSchema) {
-                        $table->name = ($addSchema) ? $table->internalName : $table->resourceName;
-                    }
-                    $tables[strtolower($table->name)] = $table;
-                }
-            }
-            ksort($tables, SORT_NATURAL); // sort alphabetically
-
-            // merge db extras
-            if (!empty($extrasEntries = $this->getSchemaExtrasForTables(array_keys($tables)))) {
-                foreach ($extrasEntries as $extras) {
-                    if (!empty($extraName = strtolower(strval($extras['table'])))) {
-                        if (array_key_exists($extraName, $tables)) {
-                            $tables[$extraName]->fill(array_except($extras, 'id'));
-                        }
-                    }
-                }
-            }
-
-            $this->parent->addToCache('tables', $tables, true);
-        }
-        if (!empty($schema)) {
-            $out = [];
-            foreach ($tables as $table => $info) {
-                if (starts_with($table, $schema . '.')) {
-                    $out[$table] = $info;
-                }
-            }
-
-            $tables = $out;
-        }
-
-        return $tables;
     }
 
     /**
@@ -703,248 +646,6 @@ class DbSchemaResource extends BaseDbResource
         return $result;
     }
 
-    protected function getTableReferences($refresh = false)
-    {
-        $result = null;
-        $cacheKey = 'table_refs';
-        if ($refresh || (is_null($result = $this->parent->getFromCache($cacheKey)))) {
-            $schema = $this->parent->getSchema();
-            if ($schema->supportsResourceType(DbResourceTypes::TYPE_TABLE_RELATIONSHIP)) {
-                $result = $schema->getResourceNames(DbResourceTypes::TYPE_TABLE_RELATIONSHIP);
-                $this->parent->addToCache($cacheKey, $result, true);
-            }
-        }
-
-        return $result;
-    }
-
-    protected function buildTableRelations(TableSchema $table, $constraints)
-    {
-        $defaultSchema = $this->parent->getNamingSchema();
-        $constraints2 = $constraints;
-
-        foreach ($constraints as $key => $constraint) {
-            $constraint = array_change_key_case((array)$constraint, CASE_LOWER);
-            $ts = $constraint['table_schema'];
-            $tn = $constraint['table_name'];
-            $cn = $constraint['column_name'];
-            $rts = $constraint['referenced_table_schema'];
-            $rtn = $constraint['referenced_table_name'];
-            $rcn = $constraint['referenced_column_name'];
-            if ((0 == strcasecmp($tn, $table->resourceName)) && (0 == strcasecmp($ts, $table->schemaName))) {
-                $name = ($rts == $defaultSchema) ? $rtn : $rts . '.' . $rtn;
-                $column = $table->getColumn($cn);
-                $table->foreignKeys[strtolower($cn)] = [$name, $rcn];
-                if (isset($column)) {
-                    $column->isForeignKey = true;
-                    $column->refTable = $name;
-                    $column->refField = $rcn;
-                    if (DbSimpleTypes::TYPE_INTEGER === $column->type) {
-                        $column->type = DbSimpleTypes::TYPE_REF;
-                    }
-                    $table->addColumn($column);
-                }
-
-                // Add it to our foreign references as well
-                $relation =
-                    new RelationSchema([
-                        'type'           => RelationSchema::BELONGS_TO,
-                        'field'          => $cn,
-                        'ref_service_id' => $this->getServiceId(),
-                        'ref_table'      => $name,
-                        'ref_field'      => $rcn,
-                    ]);
-
-                $table->addRelation($relation);
-            } elseif ((0 == strcasecmp($rtn, $table->resourceName)) && (0 == strcasecmp($rts, $table->schemaName))) {
-                $name = ($ts == $defaultSchema) ? $tn : $ts . '.' . $tn;
-                switch (strtolower((string)array_get($constraint, 'constraint_type'))) {
-                    case 'primary key':
-                    case 'unique':
-                    case 'p':
-                    case 'u':
-                        $relation = new RelationSchema([
-                            'type'           => RelationSchema::HAS_ONE,
-                            'field'          => $rcn,
-                            'ref_service_id' => $this->getServiceId(),
-                            'ref_table'      => $name,
-                            'ref_field'      => $cn,
-                        ]);
-                        break;
-                    default:
-                        $relation = new RelationSchema([
-                            'type'           => RelationSchema::HAS_MANY,
-                            'field'          => $rcn,
-                            'ref_service_id' => $this->getServiceId(),
-                            'ref_table'      => $name,
-                            'ref_field'      => $cn,
-                        ]);
-                        break;
-                }
-
-                if ($oldRelation = $table->getRelation($relation->name)) {
-                    if (RelationSchema::HAS_ONE !== $oldRelation->type) {
-                        $table->addRelation($relation); // overrides HAS_MANY
-                    }
-                } else {
-                    $table->addRelation($relation);
-                }
-
-                // if other has foreign keys to other tables, we can say these are related as well
-                foreach ($constraints2 as $key2 => $constraint2) {
-                    if (0 != strcasecmp($key, $key2)) // not same key
-                    {
-                        $constraint2 = array_change_key_case((array)$constraint2, CASE_LOWER);
-                        $ts2 = $constraint2['table_schema'];
-                        $tn2 = $constraint2['table_name'];
-                        $cn2 = $constraint2['column_name'];
-                        if ((0 == strcasecmp($ts2, $ts)) && (0 == strcasecmp($tn2, $tn))
-                        ) {
-                            $rts2 = $constraint2['referenced_table_schema'];
-                            $rtn2 = $constraint2['referenced_table_name'];
-                            $rcn2 = $constraint2['referenced_column_name'];
-                            if ((0 != strcasecmp($rts2, $table->schemaName)) ||
-                                (0 != strcasecmp($rtn2, $table->resourceName))
-                            ) {
-                                $name2 = ($rts2 == $table->schemaName) ? $rtn2 : $rts2 . '.' . $rtn2;
-                                // not same as parent, i.e. via reference back to self
-                                // not the same key
-                                $relation =
-                                    new RelationSchema([
-                                        'type'                => RelationSchema::MANY_MANY,
-                                        'field'               => $rcn,
-                                        'ref_service_id'      => $this->getServiceId(),
-                                        'ref_table'           => $name2,
-                                        'ref_field'           => $rcn2,
-                                        'junction_service_id' => $this->getServiceId(),
-                                        'junction_table'      => $name,
-                                        'junction_field'      => $cn,
-                                        'junction_ref_field'  => $cn2
-                                    ]);
-
-                                $table->addRelation($relation);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    protected function getTableSchema($name, $refresh = false)
-    {
-        $result = null;
-        $cacheKey = 'table:' . strtolower($name);
-        if ($refresh || (is_null($result = $this->parent->getFromCache($cacheKey)))) {
-            $schema = $this->parent->getSchema();
-            if ($tableSchema = array_get($this->getTableNames(), strtolower($name))) {
-                /** @type TableSchema $result */
-                if (!$result = $schema->getResource(DbResourceTypes::TYPE_TABLE, $tableSchema)) {
-                    if ($schema->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
-                        $result = $schema->getResource(DbResourceTypes::TYPE_VIEW, $tableSchema);
-                    }
-                }
-                if ($result) {
-                    $tableSchema = $result;
-
-                    // merge db relationships
-                    if (!empty($references = $this->getTableReferences($refresh))) {
-                        $this->buildTableRelations($tableSchema, $references);
-                    }
-
-                    // merge db extras
-                    if (!empty($extras = $this->getSchemaExtrasForFields($tableSchema->name))) {
-                        foreach ($extras as $extra) {
-                            if (!empty($columnName = array_get($extra, 'field'))) {
-                                unset($extra['field']);
-                                if (!empty($type = array_get($extra, 'extra_type'))) {
-                                    $extra['type'] = $type;
-                                    // upgrade old entries
-                                    if ('virtual' === $type) {
-                                        $extra['is_virtual'] = true;
-                                        if (!empty($functionInfo = array_get($extra, 'db_function'))) {
-                                            $type = $extra['type'] = array_get($functionInfo, 'type',
-                                                DbSimpleTypes::TYPE_STRING);
-                                            if ($function = array_get($functionInfo, 'function')) {
-                                                $extra['db_function'] = [
-                                                    [
-                                                        'use'           => [DbFunctionUses::SELECT],
-                                                        'function'      => $function,
-                                                        'function_type' => FunctionTypes::DATABASE,
-                                                    ]
-                                                ];
-                                            }
-                                            if ($aggregate = array_get($functionInfo, 'aggregate')) {
-                                                $extra['is_aggregate'] = $aggregate;
-                                            }
-                                        }
-                                    }
-                                }
-                                unset($extra['extra_type']);
-
-                                if (!empty($alias = array_get($extra, 'alias'))) {
-                                    $extra['quotedAlias'] = $schema->quoteColumnName($alias);
-                                }
-
-                                if (null !== $c = $result->getColumn($columnName)) {
-                                    $c->fill($extra);
-                                } elseif (!empty($type) && (array_get($extra, 'is_virtual') ||
-                                        !$schema->supportsResourceType(DbResourceTypes::TYPE_TABLE_FIELD))) {
-                                    $extra['name'] = $columnName;
-                                    $c = new ColumnSchema($extra);
-                                    $c->quotedName = $schema->quoteColumnName($c->name);
-                                    $tableSchema->addColumn($c);
-                                }
-                            }
-                        }
-                    }
-                    if (!empty($extras = $this->getSchemaVirtualRelationships($tableSchema->name))) {
-                        foreach ($extras as $extra) {
-                            $refService = null;
-                            $junctionService = null;
-                            $si = array_get($extra, 'ref_service_id');
-                            if ($this->getServiceId() !== $si) {
-                                $refService = ServiceManager::getServiceNameById($si);
-                            }
-                            $si = array_get($extra, 'junction_service_id');
-                            if (!empty($si) && ($this->getServiceId() !== $si)) {
-                                $junctionService = ServiceManager::getServiceNameById($si);
-                            }
-                            $extra['name'] = RelationSchema::buildName(
-                                array_get($extra, 'type'),
-                                array_get($extra, 'field'),
-                                $refService,
-                                array_get($extra, 'ref_table'),
-                                array_get($extra, 'ref_field'),
-                                $junctionService,
-                                array_get($extra, 'junction_table')
-                            );
-                            $relation = new RelationSchema($extra);
-                            $relation->isVirtual = true;
-                            $tableSchema->addRelation($relation);
-                        }
-                    }
-                    if (!empty($extras = $this->getSchemaExtrasForRelated($tableSchema->name))) {
-                        foreach ($extras as $extra) {
-                            if (!empty($relatedName = array_get($extra, 'relationship'))) {
-                                if (null !== $relationship = $tableSchema->getRelation($relatedName)) {
-                                    $relationship->fill($extra);
-                                    if (isset($extra['always_fetch']) && $extra['always_fetch']) {
-                                        $tableSchema->fetchRequiresRelations = true;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    $tableSchema->discoveryCompleted = true;
-                    $this->parent->addToCache($cacheKey, $tableSchema, true);
-                }
-            }
-        }
-
-        return $result;
-    }
-
     /**
      * Get multiple tables and their properties
      *
@@ -991,7 +692,7 @@ class DbSchemaResource extends BaseDbResource
         }
 
         try {
-            $table = $this->getTableSchema($name, $refresh);
+            $table = $this->parent->getTableSchema($name, $refresh);
             if (!$table) {
                 throw new NotFoundException("Table '$name' does not exist in the database.");
             }
@@ -1579,7 +1280,7 @@ class DbSchemaResource extends BaseDbResource
             // todo exist query here
         }
         try {
-            if ($resource = $this->getTableSchema($table)) {
+            if ($resource = $this->parent->getTableSchema($table)) {
                 $this->parent->getSchema()->dropTable($resource->quotedName);
                 $this->tablesDropped($table);
             }
@@ -1644,7 +1345,7 @@ class DbSchemaResource extends BaseDbResource
         }
 
         try {
-            $tableSchema = $this->getTableSchema($table);
+            $tableSchema = $this->parent->getTableSchema($table);
             if ($resource = $tableSchema->getColumn($field)) {
                 if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_TABLE_FIELD) && !$resource->isVirtual) {
                     $this->parent->getSchema()->dropColumns($tableSchema->quotedName, $resource->quotedName);
@@ -1711,7 +1412,7 @@ class DbSchemaResource extends BaseDbResource
         }
 
         try {
-            $tableSchema = $this->getTableSchema($table);
+            $tableSchema = $this->parent->getTableSchema($table);
             if ($resource = $tableSchema->getRelation($relationship)) {
                 if ($resource->isVirtual) {
                     $this->removeSchemaVirtualRelationships($table, [$resource->toArray()]);
@@ -1762,7 +1463,7 @@ class DbSchemaResource extends BaseDbResource
             throw new \InvalidArgumentException('Table name cannot be empty.');
         }
 
-        $tables = $this->getTableNames();
+        $tables = $this->parent->getTableNames();
         //	Search normal, return real name
         $ndx = strtolower($name);
         if (isset($tables[$ndx])) {
@@ -1784,7 +1485,7 @@ class DbSchemaResource extends BaseDbResource
      */
     public function describeTableFields($table_name, $field_names = null, $refresh = false)
     {
-        $table = $this->getTableSchema($table_name, $refresh);
+        $table = $this->parent->getTableSchema($table_name, $refresh);
         if (!$table) {
             throw new NotFoundException("Table '$table_name' does not exist in the database.");
         }
@@ -1824,7 +1525,7 @@ class DbSchemaResource extends BaseDbResource
     public function describeTableRelationships($table_name, $relationships = null, $refresh = false)
     {
         /** @var TableSchema $table */
-        $table = $this->getTableSchema($table_name, $refresh);
+        $table = $this->parent->getTableSchema($table_name, $refresh);
         if (!$table) {
             throw new NotFoundException("Table '$table_name' does not exist in the database.");
         }
@@ -1894,7 +1595,7 @@ class DbSchemaResource extends BaseDbResource
                 }
 
                 //	Does it already exist
-                if ($tableSchema = $this->getTableSchema($tableName)) {
+                if ($tableSchema = $this->parent->getTableSchema($tableName)) {
                     if (!$allow_merge) {
                         throw new \Exception("A table with name '$tableName' already exist in the database.");
                     }
@@ -2387,8 +2088,18 @@ class DbSchemaResource extends BaseDbResource
                 !empty($extraNew['always_fetch']) || !empty($extraNew['flatten']) ||
                 !empty($extraNew['flatten_drop_prefix'])
             ) {
+                if (!empty($si = array_get($relation, 'ref_service_id'))) {
+                    if ($this->getServiceId() !== $si) {
+                        $relation['ref_service'] = ServiceManager::getServiceNameById($si);
+                    }
+                }
+                if (!empty($si = array_get($relation, 'junction_service_id'))) {
+                    if (!empty($si) && ($this->getServiceId() !== $si)) {
+                        $relation['junction_service'] = ServiceManager::getServiceNameById($si);
+                    }
+                }
                 $extraNew['table'] = $table_name;
-                $extraNew['relationship'] = array_get($relation, 'name');
+                $extraNew['relationship'] = RelationSchema::buildName($relation);
                 $extra[] = $extraNew;
             }
 
@@ -2441,7 +2152,7 @@ class DbSchemaResource extends BaseDbResource
             $name = array_get($relation, 'name');
 
             /** @type RelationSchema $oldRelation */
-            if ($oldRelation = $table_schema->getRelation($name)) {
+            if (!empty($name) && ($oldRelation = $table_schema->getRelation($name))) {
                 // UPDATE
                 if (!$allow_update) {
                     throw new \Exception("Relation '$name' already exists in table '{$table_schema->name}'.");
@@ -2458,7 +2169,7 @@ class DbSchemaResource extends BaseDbResource
                         !empty($combined['flatten_drop_prefix'])
                     ) {
                         $extraNew['table'] = $table_schema->name;
-                        $extraNew['relationship'] = array_get($relation, 'name');
+                        $extraNew['relationship'] = $name;
                         $extras[] = $extraNew;
                     } else {
                         $dropExtras[$table_schema->name][] = $oldRelation->name;
@@ -2483,8 +2194,18 @@ class DbSchemaResource extends BaseDbResource
                     !empty($extraNew['always_fetch']) || !empty($extraNew['flatten']) ||
                     !empty($extraNew['flatten_drop_prefix'])
                 ) {
+                    if (!empty($si = array_get($relation, 'ref_service_id'))) {
+                        if ($this->getServiceId() !== $si) {
+                            $relation['ref_service'] = ServiceManager::getServiceNameById($si);
+                        }
+                    }
+                    if (!empty($si = array_get($relation, 'junction_service_id'))) {
+                        if (!empty($si) && ($this->getServiceId() !== $si)) {
+                            $relation['junction_service'] = ServiceManager::getServiceNameById($si);
+                        }
+                    }
                     $extraNew['table'] = $table_schema->name;
-                    $extraNew['relationship'] = array_get($relation, 'name');
+                    $extraNew['relationship'] = RelationSchema::buildName($relation);
                     $extras[] = $extraNew;
                 }
 
@@ -2493,6 +2214,8 @@ class DbSchemaResource extends BaseDbResource
                     $relation = array_except($relation, $this->relatedExtras);
                     $relation['table'] = $table_schema->name;
                     $virtuals[] = $relation;
+                } else {
+                    // todo create foreign keys here eventually as well?
                 }
             }
         }
