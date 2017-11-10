@@ -240,14 +240,15 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
         if ($refresh || (is_null($tables = $this->getFromCache('tables')))) {
             $tables = [];
             $defaultSchema = $this->getNamingSchema();
+            $schemaIF = $this->getSchema();
             foreach ($this->getSchemas($refresh) as $schemaName) {
                 $addSchema = (!empty($schemaName) && ($defaultSchema !== $schemaName));
 
-                $result = $this->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE, $schemaName);
+                $result = $schemaIF->getResourceNames(DbResourceTypes::TYPE_TABLE, $schemaName);
 
                 // Until views are separated as separate resource
-                if ($this->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
-                    $views = $this->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schemaName);
+                if ($schemaIF->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
+                    $views = $schemaIF->getResourceNames(DbResourceTypes::TYPE_VIEW, $schemaName);
                     $result = array_merge($result, $views);
                 }
 

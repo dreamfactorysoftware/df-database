@@ -104,7 +104,7 @@ abstract class BaseDbTableResource extends BaseDbResource
      */
     public function listResources($schema = null, $refresh = false)
     {
-        $result = $this->getTableNames($schema, $refresh);
+        $result = $this->parent->getTableNames($schema, $refresh);
         $resources = [];
         foreach ($result as $table) {
             $name = $table->getName(true);
@@ -145,7 +145,7 @@ abstract class BaseDbTableResource extends BaseDbResource
 
         $refresh = $this->request->getParameterAsBool(ApiOptions::REFRESH);
         $schema = $this->request->getParameter(ApiOptions::SCHEMA, '');
-        $result = $this->getTableNames($schema, $refresh);
+        $result = $this->parent->getTableNames($schema, $refresh);
         $resources = [];
         foreach ($result as $table) {
             $access = $this->getPermissions($table->getName(true));
@@ -157,61 +157,6 @@ abstract class BaseDbTableResource extends BaseDbResource
         }
 
         return $resources;
-    }
-
-    /**
-     * @param string $schema
-     * @param bool   $refresh
-     * @return TableSchema[]
-     */
-    protected function getTableNames($schema = null, $refresh = false)
-    {
-        if ($refresh || (is_null($tables = $this->parent->getFromCache('tables')))) {
-            $tables = [];
-            $defaultSchema = $this->parent->getNamingSchema();
-            foreach ($this->parent->getSchemas($refresh) as $schemaName) {
-                $addSchema = (!empty($schemaName) && ($defaultSchema !== $schemaName));
-
-                $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE, $schemaName);
-
-                // Until views are separated as separate resource
-                if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
-                    $views = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schemaName);
-                    $result = array_merge($result, $views);
-                }
-
-                foreach ($result as &$table) {
-                    if ($addSchema) {
-                        $table->name = ($addSchema) ? $table->internalName : $table->resourceName;
-                    }
-                    $tables[strtolower($table->name)] = $table;
-                }
-            }
-            ksort($tables, SORT_NATURAL); // sort alphabetically
-            // merge db extras
-            if (!empty($extrasEntries = $this->getSchemaExtrasForTables(array_keys($tables)))) {
-                foreach ($extrasEntries as $extras) {
-                    if (!empty($extraName = strtolower(strval($extras['table'])))) {
-                        if (array_key_exists($extraName, $tables)) {
-                            $tables[$extraName]->fill(array_except($extras, 'id'));
-                        }
-                    }
-                }
-            }
-            $this->parent->addToCache('tables', $tables, true);
-        }
-        if (!empty($schema)) {
-            $out = [];
-            foreach ($tables as $table => $info) {
-                if (starts_with($table, $schema . '.')) {
-                    $out[$table] = $info;
-                }
-            }
-
-            $tables = $out;
-        }
-
-        return $tables;
     }
 
     /**
@@ -227,7 +172,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             throw new \InvalidArgumentException('Table name cannot be empty.');
         }
 
-        $result = $this->getTableNames();
+        $result = $this->parent->getTableNames();
         // re-key by alias
         $tables = [];
         foreach ($result as $table) {
