@@ -29,6 +29,10 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
      */
     protected $allowUpsert = false;
     /**
+     * @type int
+     */
+    protected $maxRecords = 0;
+    /**
      * @type bool
      */
     protected $cacheEnabled = false;
@@ -79,6 +83,7 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
         parent::__construct($settings);
 
         $this->allowUpsert = array_get_bool($this->config, 'allow_upsert');
+        $this->maxRecords = intval(array_get($this->config, 'max_records', 0));
         $this->cacheEnabled = array_get_bool($this->config, 'cache_enabled');
         $this->cacheTTL = intval(array_get($this->config, 'cache_ttl', \Config::get('df.default_cache_ttl')));
         $this->userSchema = array_get($this->config, 'schema');
@@ -94,6 +99,11 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
         } catch (\Exception $ex) {
             error_log("Failed to disconnect from database.\n{$ex->getMessage()}");
         }
+    }
+
+    public function getMaxRecordsLimit($default = 1000)
+    {
+        return ($this->maxRecords > 0)? $this->maxRecords : $default;
     }
 
     public function upsertAllowed()

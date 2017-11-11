@@ -344,7 +344,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                                 ApiOptions::FIELDS_ALL),
                             ApiOptions::LIMIT  => $this->request->getParameter(
                                 str_replace('.', '_', $relative . '.' . ApiOptions::LIMIT),
-                                static::getMaxRecordsReturnedLimit()),
+                                $this->getMaxRecordsReturnedLimit()),
                             ApiOptions::ORDER  => $this->request->getParameter(
                                 str_replace('.', '_', $relative . '.' . ApiOptions::ORDER)),
                             ApiOptions::GROUP  => $this->request->getParameter(
@@ -1892,7 +1892,7 @@ abstract class BaseDbTableResource extends BaseDbResource
     protected function retrieveRelatedRecords(TableSchema $schema, $relations, $requests, &$data, $refresh = false)
     {
         $relatedExtras = [
-            ApiOptions::LIMIT   => static::getMaxRecordsReturnedLimit(),
+            ApiOptions::LIMIT   => $this->getMaxRecordsReturnedLimit(),
             ApiOptions::FIELDS  => ApiOptions::FIELDS_ALL,
             ApiOptions::REFRESH => $refresh
         ];
@@ -3912,12 +3912,13 @@ abstract class BaseDbTableResource extends BaseDbResource
     /**
      * @return int
      */
-    protected static function getMaxRecordsReturnedLimit()
+    protected function getMaxRecordsReturnedLimit()
     {
         // some classes define their own default
         $default = defined('static::MAX_RECORDS_RETURNED') ? static::MAX_RECORDS_RETURNED : 1000;
+        $default = intval(Config::get('database.max_records_returned', $default));
 
-        return intval(Config::get('database.max_records_returned', $default));
+        return $this->getService()->getMaxRecordsLimit($default);
     }
 
     protected static function findRecordByNameValue($data, $field, $value)

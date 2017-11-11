@@ -3,6 +3,8 @@ All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
+### Added
+- DF-1224 Added ability to set different default limits (max_records_returned) per service
 
 ## [0.8.0] - 2017-11-03
 ### Changed
