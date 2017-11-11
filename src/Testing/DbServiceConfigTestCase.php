@@ -4,7 +4,8 @@ namespace DreamFactory\Core\Database\Testing;
 
 use DreamFactory\Core\Enums\Verbs;
 use DreamFactory\Core\Testing\TestCase;
-use DreamFactory\Core\Facades\ServiceManager;
+use DreamFactory\Core\Models\Service;
+use ServiceManager;
 
 class DbServiceConfigTestCase extends TestCase
 {
@@ -39,7 +40,7 @@ class DbServiceConfigTestCase extends TestCase
     public function tearDown()
     {
         foreach ($this->types as $type) {
-            \DreamFactory\Core\Models\Service::whereName($type . '-db')->delete();
+            Service::whereName($type . '-db')->delete();
         }
 
         parent::tearDown();
