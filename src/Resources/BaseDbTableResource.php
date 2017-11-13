@@ -14,7 +14,6 @@ use DreamFactory\Core\Database\Schema\ColumnSchema;
 use DreamFactory\Core\Enums\ApiOptions;
 use DreamFactory\Core\Enums\DbComparisonOperators;
 use DreamFactory\Core\Enums\DbLogicalOperators;
-use DreamFactory\Core\Enums\DbResourceTypes;
 use DreamFactory\Core\Enums\DbSimpleTypes;
 use DreamFactory\Core\Enums\Verbs;
 use DreamFactory\Core\Enums\VerbsMask;
@@ -3623,7 +3622,6 @@ abstract class BaseDbTableResource extends BaseDbResource
     {
         // some classes define their own default
         $default = defined('static::MAX_RECORDS_RETURNED') ? static::MAX_RECORDS_RETURNED : 1000;
-        $default = intval(Config::get('database.max_records_returned', $default));
 
         return $this->getService()->getMaxRecordsLimit($default);
     }

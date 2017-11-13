@@ -6,6 +6,7 @@ use DreamFactory\Core\Enums\Verbs;
 use DreamFactory\Core\Testing\TestCase;
 use DreamFactory\Core\Models\Service;
 use ServiceManager;
+use Config;
 
 class DbServiceConfigTestCase extends TestCase
 {
@@ -107,6 +108,29 @@ class DbServiceConfigTestCase extends TestCase
 
             $rs = $this->makeRequest(Verbs::GET, static::RESOURCE . '/' . $service->getServiceId());
             $this->assertEquals(10, ($rs->getContent())['config']['max_records']);
+        }
+    }
+
+    public function testMaxRecordsEnvCap()
+    {
+        foreach ($this->types as $type) {
+            $config = $this->getDbServiceConfig($type . '-db', $type, 100100);
+            $rs = $this->makeRequest(Verbs::POST, static::RESOURCE, [], ['resource' => [$config]]);
+            $this->assertEquals(201, $rs->getStatusCode());
+            /** @var \DreamFactory\Core\Database\Services\BaseDbService $service */
+            $service = ServiceManager::getService($type . '-db');
+            $this->assertEquals(100000, $service->getMaxRecordsLimit());
+            $this->assertEquals(100000, $service->getMaxRecordsLimit(3000));
+
+            Config::set('database.max_records_returned', 100050);
+
+            $this->assertEquals(100050, $service->getMaxRecordsLimit());
+            $this->assertEquals(100050, $service->getMaxRecordsLimit(3000));
+
+            Config::set('database.max_records_returned', 100000);
+
+            $rs = $this->makeRequest(Verbs::GET, static::RESOURCE . '/' . $service->getServiceId());
+            $this->assertEquals(100100, ($rs->getContent())['config']['max_records']);
         }
     }
 }

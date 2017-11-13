@@ -22,6 +22,7 @@ use DreamFactory\Core\Services\BaseRestService;
 use DreamFactory\Core\Utility\ResourcesWrapper;
 use Illuminate\Database\ConnectionInterface;
 use ServiceManager;
+use Config;
 
 abstract class BaseDbService extends BaseRestService implements DbExtrasInterface
 {
@@ -110,7 +111,10 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
 
     public function getMaxRecordsLimit($default = 1000)
     {
-        return ($this->maxRecords > 0)? $this->maxRecords : $default;
+        $envCap = intval(Config::get('database.max_records_returned', 100000));
+        $maxRecords =  ($this->maxRecords > 0)? $this->maxRecords : $default;
+
+        return ($maxRecords > $envCap)? $envCap : $maxRecords;
     }
 
     public function upsertAllowed()
