@@ -61,24 +61,30 @@ trait SupportsExtraDbConfigs
     public static function getConfigSchema()
     {
         $schema = (array)parent::getConfigSchema();
-        $schema[] = [
-            'name'        => 'allow_upsert',
-            'label'       => 'Allow Upsert',
-            'type'        => 'boolean',
-            'allow_null'  => false,
-            'default'     => false,
-            'description' => 'Allow PUT to create records if they do not exist and the service is capable.',
-        ];
-        $schema[] = [
-            'name'        => 'max_records',
-            'label'       => 'Maximum Records',
-            'type'        => 'integer',
-            'allow_null'  => false,
-            'default'     => 1000,
-            'description' => 'Maximum number of records returned by this service. Must be a number greater than 0. Default is 1000.',
-        ];
-        $schema = array_merge($schema, ServiceCacheConfig::getConfigSchema());
+        $schema = array_merge($schema, static::getExtraConfigSchema(), ServiceCacheConfig::getConfigSchema());
 
         return $schema;
+    }
+
+    public static function getExtraConfigSchema()
+    {
+        return [
+            [
+                'name'        => 'allow_upsert',
+                'label'       => 'Allow Upsert',
+                'type'        => 'boolean',
+                'allow_null'  => false,
+                'default'     => false,
+                'description' => 'Allow PUT to create records if they do not exist and the service is capable.',
+            ],
+            [
+                'name'        => 'max_records',
+                'label'       => 'Maximum Records',
+                'type'        => 'integer',
+                'allow_null'  => false,
+                'default'     => 1000,
+                'description' => 'Maximum number of records returned by this service. Must be a number greater than 0. Default is 1000.',
+            ],
+        ];
     }
 }
