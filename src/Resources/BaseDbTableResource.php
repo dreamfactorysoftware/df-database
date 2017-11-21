@@ -2079,27 +2079,32 @@ abstract class BaseDbTableResource extends BaseDbResource
                 $table->addRelation($relation);
             } elseif ((0 == strcasecmp($rtn, $table->resourceName)) && (0 == strcasecmp($rts, $table->schemaName))) {
                 $name = ($ts == $defaultSchema) ? $tn : $ts . '.' . $tn;
+                $relation = new RelationSchema([
+                    'type'           => RelationSchema::HAS_MANY,
+                    'field'          => $rcn,
+                    'ref_service_id' => $this->getServiceId(),
+                    'ref_table'      => $name,
+                    'ref_field'      => $cn,
+                ]);
                 switch (strtolower((string)array_get($constraint, 'constraint_type'))) {
                     case 'primary key':
                     case 'unique':
                     case 'p':
                     case 'u':
-                        $relation = new RelationSchema([
-                            'type'           => RelationSchema::HAS_ONE,
-                            'field'          => $rcn,
-                            'ref_service_id' => $serviceId,
-                            'ref_table'      => $name,
-                            'ref_field'      => $cn,
-                        ]);
+                        // if this is the only one like it on the table then it is a HAS_ONE
+                        $single = true;
+                        foreach ($constraints as $ctk => $ctc) {
+                            $ctc = array_change_key_case((array)$ctc, CASE_LOWER);
+                            if (($ts == array_get($ctc, 'table_schema')) && ($tn == array_get($ctc, 'table_name')) &&
+                                ($cn !== array_get($ctc, 'column_name')) && !empty(array_get($ctc, 'constraint_type'))) {
+                                $single = false;
+                            }
+                        }
+                        if ($single) {
+                            $relation->type = RelationSchema::HAS_ONE;
+                        }
                         break;
                     default:
-                        $relation = new RelationSchema([
-                            'type'           => RelationSchema::HAS_MANY,
-                            'field'          => $rcn,
-                            'ref_service_id' => $serviceId,
-                            'ref_table'      => $name,
-                            'ref_field'      => $cn,
-                        ]);
                         break;
                 }
 
