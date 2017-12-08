@@ -4,8 +4,9 @@ namespace DreamFactory\Core\Database\Resources;
 
 use DreamFactory\Core\Database\Components\DbSchemaExtras;
 use DreamFactory\Core\Contracts\RequestHandlerInterface;
-use DreamFactory\Core\Contracts\SchemaInterface;
+use DreamFactory\Core\Contracts\DbSchemaInterface;
 use DreamFactory\Core\Enums\ApiOptions;
+use DreamFactory\Core\Enums\Verbs;
 use DreamFactory\Core\Resources\BaseRestResource;
 use DreamFactory\Core\Database\Services\BaseDbService;
 use Illuminate\Database\ConnectionInterface;
@@ -33,7 +34,7 @@ abstract class BaseDbResource extends BaseRestResource
      */
     protected $dbConn = null;
     /**
-     * @var SchemaInterface
+     * @var DbSchemaInterface
      */
     protected $schema = null;
 
@@ -108,5 +109,39 @@ abstract class BaseDbResource extends BaseRestResource
         ];
 
         return $results;
+    }
+
+    protected function formOperationName($verb, $resource = null, $plural = false, $separator = null)
+    {
+        switch ($verb) {
+            case Verbs::POST:
+                $verb = 'create';
+                break;
+            case Verbs::PUT:
+                $verb = 'replace';
+                break;
+            case Verbs::PATCH:
+                $verb = 'update';
+                break;
+            default:
+                $verb = strtolower($verb);
+                break;
+        }
+        $service = $this->getServiceName();
+        $class = $this->label;
+        if ($separator) {
+            $class = str_replace(['_',' '], $separator, $class);
+            if ($resource) {
+                return strtolower($verb . $separator . $service . $separator . $class . $separator . ($plural ? str_plural($resource) : $resource));
+            } else {
+                return strtolower($verb . $separator . $service . $separator . ($plural ? str_plural($class) : $class));
+            }
+        } else {
+            if ($resource) {
+                return $verb . camelize($service . $separator . $class . $separator . ucwords($plural ? str_plural($resource) : $resource));
+            } else {
+                return $verb . camelize($service . ($plural ? str_plural($class) : $class));
+            }
+        }
     }
 }

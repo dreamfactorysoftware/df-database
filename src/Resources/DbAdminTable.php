@@ -3,7 +3,6 @@
 namespace DreamFactory\Core\Database\Resources;
 
 use DreamFactory\Core\Components\DataValidator;
-use DreamFactory\Core\Components\Service2ServiceRequest;
 use DreamFactory\Core\Database\Components\TableDescriber;
 use DreamFactory\Core\Database\Enums\DbFunctionUses;
 use DreamFactory\Core\Database\Enums\FunctionTypes;
@@ -30,7 +29,7 @@ use GraphQL\Type\Definition\ResolveInfo;
 use GraphQL;
 use ServiceManager;
 
-class DbSchemaResource extends BaseDbResource
+class DbAdminTable extends BaseDbResource
 {
     use DataValidator, TableDescriber;
 
@@ -41,7 +40,7 @@ class DbSchemaResource extends BaseDbResource
     /**
      * Resource tag for dealing with table schema
      */
-    const RESOURCE_NAME = '_schema';
+    const RESOURCE_NAME = 'table';
     /**
      * Replacement tag for dealing with table schema events
      */
@@ -134,16 +133,9 @@ class DbSchemaResource extends BaseDbResource
     {
         $refresh = $this->request->getParameterAsBool(ApiOptions::REFRESH);
         $schema = $this->request->getParameter(ApiOptions::SCHEMA, '');
-        $ids = static::validateAsArray($this->request->getParameter(ApiOptions::IDS), ',');
         $result = $this->parent->getTableNames($schema, $refresh);
         $resources = [];
         foreach ($result as $table) {
-            $name = $table->name;
-            if ((false !== $ids) && !empty($ids)) {
-                if (false === array_search($name, $ids)) {
-                    continue;
-                }
-            }
             $access = $this->getPermissions($table->name);
             if (!empty($access)) {
                 $info = $table->toArray();
@@ -1461,7 +1453,6 @@ class DbSchemaResource extends BaseDbResource
      *
      * @return string
      * @throws NotFoundException
-     * @throws \Exception
      */
     public function correctTableName(&$name)
     {
@@ -1478,8 +1469,8 @@ class DbSchemaResource extends BaseDbResource
      * @param string $name       The name of the table to check
      * @param bool   $returnName If true, the table name is returned instead of TRUE
      *
+     * @throws \InvalidArgumentException
      * @return bool
-     * @throws \Exception
      */
     public function doesTableExist($name, $returnName = false)
     {
@@ -1507,7 +1498,6 @@ class DbSchemaResource extends BaseDbResource
      * @throws BadRequestException
      * @throws InternalServerErrorException
      * @throws NotFoundException
-     * @throws \Exception
      */
     public function describeTableFields($table_name, $field_names = null, $refresh = false)
     {
@@ -1548,7 +1538,6 @@ class DbSchemaResource extends BaseDbResource
      * @throws BadRequestException
      * @throws InternalServerErrorException
      * @throws NotFoundException
-     * @throws \Exception
      */
     public function describeTableRelationships($table_name, $relationships = null, $refresh = false)
     {
@@ -2397,8 +2386,6 @@ class DbSchemaResource extends BaseDbResource
 
     public function getGraphQLSchema()
     {
-        $service = $this->getServiceName();
-
         $tName = 'db_schema_table';
         $types = [
             'db_schema_table_relation' => new BaseType(RelationSchema::getSchema()),
@@ -2416,25 +2403,12 @@ class DbSchemaResource extends BaseDbResource
                 'name'    => ['name' => 'name', 'type' => Type::nonNull(Type::string())],
                 'refresh' => ['name' => 'refresh', 'type' => Type::boolean()],
             ],
-            'resolve' => function ($root, $args, $context, ResolveInfo $info) use ($service) {
-            $params = ['ids' => $args['name'], 'refresh' => array_get_bool($args, 'refresh')];
-                $request = new Service2ServiceRequest(Verbs::GET, $params);
-                $response = ServiceManager::handleServiceRequest($request, $service, '_schema');
-                $status = $response->getStatusCode();
-                $content = $response->getContent();
-                if ($status >= 300) {
-                    if (isset($content, $content['error'])) {
-                        $error = $content['error'];
-                        extract($error);
-                        /** @noinspection PhpUndefinedVariableInspection */
-                        throw new RestException($status, $message, $code);
-                    }
-
-                    throw new RestException($status, 'GraphQL query failed but returned invalid format.');
+            'resolve' => function ($root, $args, $context, ResolveInfo $info) {
+                if (isset($args['name'])) {
+                    return $this->describeTable($args['name'], array_get_bool($args, 'refresh'));
                 }
-                $response = ResourcesWrapper::unwrapResources($content);
 
-                return $response[0];
+                return null;
             },
         ]);
         $qName = $this->formOperationName(Verbs::GET, null, true);
@@ -2442,28 +2416,23 @@ class DbSchemaResource extends BaseDbResource
             'name'    => $qName,
             'type'    => $tName,
             'args'    => [
-                'ids'     => ['name' => 'ids', 'type' => Type::listOf(Type::string())],
-                'schema'  => ['name' => 'schema', 'type' => Type::string()],
+                'ids'     => ['name' => 'ids', 'type' => Type::string()],
+                'schema'  => ['name' => 'refresh', 'type' => Type::string()],
                 'refresh' => ['name' => 'refresh', 'type' => Type::boolean()],
             ],
-            'resolve' => function ($root, $args, $context, ResolveInfo $info) use ($service) {
-                $request = new Service2ServiceRequest(Verbs::GET, $args);
-                $response = ServiceManager::handleServiceRequest($request, $service, '_schema');
-                $status = $response->getStatusCode();
-                $content = $response->getContent();
-                if ($status >= 300) {
-                    if (isset($content, $content['error'])) {
-                        $error = $content['error'];
-                        extract($error);
-                        /** @noinspection PhpUndefinedVariableInspection */
-                        throw new RestException($status, $message, $code);
+            'resolve' => function ($root, $args, $context, ResolveInfo $info) {
+                if (isset($args['ids'])) {
+                    return $this->describeTables($args['ids'], array_get_bool($args, 'refresh'));
+                } else {
+                    $types = [];
+                    $result = $this->parent->getTableNames(array_get($args, 'schema'),
+                        array_get_bool($args, 'refresh'));
+                    foreach ($result as $type) {
+                        $types[] = (object)$type->toArray();
                     }
 
-                    throw new RestException($status, 'GraphQL query failed but returned invalid format.');
+                    return $types;
                 }
-                $response = ResourcesWrapper::unwrapResources($content);
-
-                return $response;
             },
         ]);
         $qName = $qName . 'Names';
@@ -2471,27 +2440,12 @@ class DbSchemaResource extends BaseDbResource
             'name'    => $qName,
             'type'    => Type::string(),
             'args'    => [
-                'schema'  => ['name' => 'schema', 'type' => Type::string()],
+                'schema'  => ['name' => 'refresh', 'type' => Type::string()],
                 'refresh' => ['name' => 'refresh', 'type' => Type::boolean()],
             ],
-            'resolve' => function ($root, $args, $context, ResolveInfo $info) use ($service) {
-                $request = new Service2ServiceRequest(Verbs::GET, array_merge($args, ['as_list' => true]));
-                $response = ServiceManager::handleServiceRequest($request, $service, '_schema');
-                $status = $response->getStatusCode();
-                $content = $response->getContent();
-                if ($status >= 300) {
-                    if (isset($content, $content['error'])) {
-                        $error = $content['error'];
-                        extract($error);
-                        /** @noinspection PhpUndefinedVariableInspection */
-                        throw new RestException($status, $message, $code);
-                    }
-
-                    throw new RestException($status, 'GraphQL query failed but returned invalid format.');
-                }
-                $response = ResourcesWrapper::unwrapResources($content);
-
-                return $response;
+            'resolve' => function ($root, $args, $context, ResolveInfo $info) {
+                return array_keys($this->parent->getTableNames(array_get($args, 'schema'),
+                    array_get_bool($args, 'refresh')));
             },
         ]);
         $mutations = [];

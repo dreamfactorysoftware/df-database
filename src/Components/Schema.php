@@ -2,7 +2,7 @@
 
 namespace DreamFactory\Core\Database\Components;
 
-use DreamFactory\Core\Contracts\SchemaInterface;
+use DreamFactory\Core\Contracts\DbSchemaInterface;
 use DreamFactory\Core\Database\Schema\ColumnSchema;
 use DreamFactory\Core\Database\Schema\FunctionSchema;
 use DreamFactory\Core\Database\Schema\NamedResourceSchema;
@@ -22,7 +22,7 @@ use Illuminate\Database\ConnectionInterface;
  * Schema is the base class for retrieving metadata information.
  *
  */
-class Schema implements SchemaInterface
+class Schema implements DbSchemaInterface
 {
     /**
      * @const integer Maximum size of a string
@@ -375,13 +375,7 @@ class Schema implements SchemaInterface
                             $c->type = DbSimpleTypes::TYPE_ID;
                         }
                     }
-                    if ($table->primaryKey === null) {
-                        $table->primaryKey = $c->name;
-                    } elseif (is_string($table->primaryKey)) {
-                        $table->primaryKey = [$table->primaryKey, $c->name];
-                    } else {
-                        $table->primaryKey[] = $c->name;
-                    }
+                    $table->addPrimaryKey($c->name);
                 }
                 $table->addColumn($c);
             }

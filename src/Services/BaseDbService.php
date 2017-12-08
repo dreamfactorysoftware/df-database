@@ -3,12 +3,13 @@
 namespace DreamFactory\Core\Database\Services;
 
 use DreamFactory\Core\Contracts\DbExtrasInterface;
-use DreamFactory\Core\Contracts\SchemaInterface;
+use DreamFactory\Core\Contracts\DbSchemaInterface;
 use DreamFactory\Core\Database\Components\DbSchemaExtras;
 use DreamFactory\Core\Database\Enums\DbFunctionUses;
 use DreamFactory\Core\Database\Enums\FunctionTypes;
 use DreamFactory\Core\Database\Resources\BaseDbResource;
-use DreamFactory\Core\Database\Resources\BaseDbTableResource;
+use DreamFactory\Core\Database\Resources\DbAdmin;
+use DreamFactory\Core\Database\Resources\DbSchema;
 use DreamFactory\Core\Database\Resources\DbSchemaResource;
 use DreamFactory\Core\Database\Schema\ColumnSchema;
 use DreamFactory\Core\Database\Schema\RelationSchema;
@@ -18,6 +19,7 @@ use DreamFactory\Core\Enums\DbResourceTypes;
 use DreamFactory\Core\Enums\DbSimpleTypes;
 use DreamFactory\Core\Exceptions\InternalServerErrorException;
 use DreamFactory\Core\Exceptions\NotImplementedException;
+use DreamFactory\Core\Resources\BaseRestResource;
 use DreamFactory\Core\Services\BaseRestService;
 use DreamFactory\Core\Utility\ResourcesWrapper;
 use Illuminate\Database\ConnectionInterface;
@@ -49,7 +51,7 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
      */
     protected $dbConn;
     /**
-     * @var SchemaInterface
+     * @var DbSchemaInterface
      */
     protected $schema;
     /**
@@ -60,19 +62,6 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
      * @var string
      */
     protected $defaultSchema;
-
-    protected static $resources = [
-        DbSchemaResource::RESOURCE_NAME    => [
-            'name'       => DbSchemaResource::RESOURCE_NAME,
-            'class_name' => DbSchemaResource::class,
-            'label'      => 'Schema',
-        ],
-        BaseDbTableResource::RESOURCE_NAME => [
-            'name'       => BaseDbTableResource::RESOURCE_NAME,
-            'class_name' => BaseDbTableResource::class,
-            'label'      => 'Tables',
-        ],
-    ];
 
     //*************************************************************************
     //	Methods
@@ -112,9 +101,9 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
     public function getMaxRecordsLimit($default = 1000)
     {
         $envCap = intval(Config::get('database.max_records_returned', 100000));
-        $maxRecords =  ($this->maxRecords > 0)? $this->maxRecords : $default;
+        $maxRecords = ($this->maxRecords > 0) ? $this->maxRecords : $default;
 
-        return ($maxRecords > $envCap)? $envCap : $maxRecords;
+        return ($maxRecords > $envCap) ? $envCap : $maxRecords;
     }
 
     public function upsertAllowed()
@@ -127,6 +116,27 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
         return $this->cacheEnabled;
     }
 
+    public function getResourceHandlers()
+    {
+        return [
+//            DbAdmin::RESOURCE_NAME             => [
+//                'name'       => DbAdmin::RESOURCE_NAME,
+//                'class_name' => DbAdmin::class,
+//                'label'      => 'Admin',
+//            ],
+//            DbSchema::RESOURCE_NAME            => [
+//                'name'       => DbSchema::RESOURCE_NAME,
+//                'class_name' => DbSchema::class,
+//                'label'      => 'Schema',
+//            ],
+            DbSchemaResource::RESOURCE_NAME    => [
+                'name'       => DbSchemaResource::RESOURCE_NAME,
+                'class_name' => DbSchemaResource::class,
+                'label'      => 'Admin Table',
+            ],
+        ];
+    }
+
     /**
      * {@inheritdoc}
      */
@@ -136,7 +146,7 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
         $refresh = ($this->request ? $this->request->getParameterAsBool(ApiOptions::REFRESH) : false);
         $schema = ($this->request ? $this->request->getParameter(ApiOptions::SCHEMA, '') : false);
 
-        foreach ($this->getResources(true) as $resourceInfo) {
+        foreach ($this->getResourceHandlers() as $resourceInfo) {
             $className = $resourceInfo['class_name'];
 
             if (!class_exists($className)) {
@@ -162,6 +172,42 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
         return $output;
     }
 
+    /**
+     * @return array
+     * @throws InternalServerErrorException
+     */
+    public function getGraphQLSchema()
+    {
+        $base = ['query' => [], 'mutation' => [], 'types' => []];
+        foreach ($this->getResourceHandlers() as $resourceInfo) {
+            $className = array_get($resourceInfo, 'class_name');
+            if (!class_exists($className)) {
+                throw new InternalServerErrorException('Service configuration class name lookup failed for resource ' .
+                    $className);
+            }
+
+            /** @var BaseRestResource $resource */
+            $resource = $this->instantiateResource($className, $resourceInfo);
+            if (method_exists($resource, 'getGraphQLSchema')) {
+                $content = $resource->getGraphQLSchema();
+                if (isset($content['query'])) {
+                    $base['query'] = array_merge((array)array_get($base, 'query'), (array)$content['query']);
+                }
+                if (isset($content['mutation'])) {
+                    $base['mutation'] = array_merge((array)array_get($base, 'mutation'), (array)$content['mutation']);
+                }
+                if (isset($content['types'])) {
+                    $base['types'] = array_merge((array)array_get($base, 'types'), (array)$content['types']);
+                }
+            }
+        }
+
+        return $base;
+    }
+
+    /**
+     * @throws InternalServerErrorException
+     */
     protected function initializeConnection()
     {
         throw new InternalServerErrorException('Database connection has not been initialized.');
@@ -181,7 +227,7 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
 
     /**
      * @throws \Exception
-     * @return SchemaInterface
+     * @return DbSchemaInterface
      */
     public function getSchema()
     {
@@ -195,6 +241,10 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
         return $this->schema;
     }
 
+    /**
+     * @return mixed|null|string
+     * @throws \Exception
+     */
     public function getDefaultSchema()
     {
         if (!$this->defaultSchema) {
@@ -207,6 +257,10 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
         return $this->defaultSchema;
     }
 
+    /**
+     * @return mixed|null|string
+     * @throws \Exception
+     */
     public function getNamingSchema()
     {
         switch (strtolower($this->userSchema)) {
@@ -220,6 +274,11 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
         }
     }
 
+    /**
+     * @param bool $refresh
+     * @return array|mixed
+     * @throws \Exception
+     */
     public function getSchemas($refresh = false)
     {
         if ($refresh || (is_null($result = $this->getFromCache('schemas')))) {
@@ -248,6 +307,7 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
      * @param string $schema
      * @param bool   $refresh
      * @return TableSchema[]
+     * @throws \Exception
      */
     public function getTableNames($schema = null, $refresh = false)
     {
@@ -302,6 +362,12 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
         return $tables;
     }
 
+    /**
+     * @param      $name
+     * @param bool $refresh
+     * @return TableSchema|mixed|null
+     * @throws \Exception
+     */
     public function getTableSchema($name, $refresh = false)
     {
         $result = null;
@@ -405,6 +471,11 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
         return $result;
     }
 
+    /**
+     * @param bool $refresh
+     * @return array|mixed|null
+     * @throws \Exception
+     */
     protected function getTableReferences($refresh = false)
     {
         $result = null;
@@ -420,6 +491,11 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
         return $result;
     }
 
+    /**
+     * @param TableSchema $table
+     * @param             $constraints
+     * @throws \Exception
+     */
     protected function buildTableRelations(TableSchema $table, $constraints)
     {
         $serviceId = $this->getServiceId();
@@ -449,39 +525,44 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
                 }
 
                 // Add it to our foreign references as well
-                $relation =
-                    new RelationSchema([
-                        'type'           => RelationSchema::BELONGS_TO,
-                        'field'          => $cn,
-                        'ref_service_id' => $serviceId,
-                        'ref_table'      => $name,
-                        'ref_field'      => $rcn,
-                    ]);
+                $relation = new RelationSchema([
+                    'type'           => RelationSchema::BELONGS_TO,
+                    'field'          => $cn,
+                    'ref_service_id' => $serviceId,
+                    'ref_table'      => $name,
+                    'ref_field'      => $rcn,
+                ]);
 
                 $table->addRelation($relation);
             } elseif ((0 == strcasecmp($rtn, $table->resourceName)) && (0 == strcasecmp($rts, $table->schemaName))) {
                 $name = ($ts == $defaultSchema) ? $tn : $ts . '.' . $tn;
+                $relation = new RelationSchema([
+                    'type'           => RelationSchema::HAS_MANY,
+                    'field'          => $rcn,
+                    'ref_service_id' => $serviceId,
+                    'ref_table'      => $name,
+                    'ref_field'      => $cn,
+                ]);
                 switch (strtolower((string)array_get($constraint, 'constraint_type'))) {
                     case 'primary key':
                     case 'unique':
                     case 'p':
                     case 'u':
-                        $relation = new RelationSchema([
-                            'type'           => RelationSchema::HAS_ONE,
-                            'field'          => $rcn,
-                            'ref_service_id' => $serviceId,
-                            'ref_table'      => $name,
-                            'ref_field'      => $cn,
-                        ]);
+                        // if this is the only one like it on the table then it is a HAS_ONE
+                        $single = true;
+                        foreach ($constraints as $ctk => $ctc) {
+                            $ctc = array_change_key_case((array)$ctc, CASE_LOWER);
+                            if (($ts == array_get($ctc, 'table_schema')) && ($tn == array_get($ctc, 'table_name')) &&
+                                ($cn !== array_get($ctc, 'column_name')) && !empty(array_get($ctc,
+                                    'constraint_type'))) {
+                                $single = false;
+                            }
+                        }
+                        if ($single) {
+                            $relation->type = RelationSchema::HAS_ONE;
+                        }
                         break;
                     default:
-                        $relation = new RelationSchema([
-                            'type'           => RelationSchema::HAS_MANY,
-                            'field'          => $rcn,
-                            'ref_service_id' => $serviceId,
-                            'ref_table'      => $name,
-                            'ref_field'      => $cn,
-                        ]);
                         break;
                 }
 
@@ -537,7 +618,7 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
     protected function getApiDocRequests()
     {
         $add = [
-            'TableSchemas'  => [
+            'TableSchemas'        => [
                 'description' => 'TableSchemas',
                 'content'     => [
                     'application/json' => [
@@ -548,7 +629,7 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
                     ],
                 ],
             ],
-            'TableSchema'   => [
+            'TableSchema'         => [
                 'description' => 'TableSchema',
                 'content'     => [
                     'application/json' => [
@@ -559,7 +640,7 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
                     ],
                 ],
             ],
-            'FieldSchemas'  => [
+            'FieldSchemas'        => [
                 'description' => 'FieldSchemas',
                 'content'     => [
                     'application/json' => [
@@ -570,7 +651,7 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
                     ],
                 ],
             ],
-            'FieldSchema'   => [
+            'FieldSchema'         => [
                 'description' => 'FieldSchema',
                 'content'     => [
                     'application/json' => [
@@ -581,7 +662,7 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
                     ],
                 ],
             ],
-            'RelationshipSchemas'  => [
+            'RelationshipSchemas' => [
                 'description' => 'RelationshipSchemas',
                 'content'     => [
                     'application/json' => [
@@ -592,7 +673,7 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
                     ],
                 ],
             ],
-            'RelationshipSchema' => [
+            'RelationshipSchema'  => [
                 'description' => 'RelationshipSchema',
                 'content'     => [
                     'application/json' => [
@@ -613,7 +694,7 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
         $wrapper = ResourcesWrapper::getWrapper();
 
         $add = [
-            'TableSchemas'  => [
+            'TableSchemas'        => [
                 'type'       => 'object',
                 'properties' => [
                     $wrapper => [
@@ -625,46 +706,8 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
                     ],
                 ],
             ],
-            'TableSchema'   => [
-                'type'       => 'object',
-                'properties' => [
-                    'name'        => [
-                        'type'        => 'string',
-                        'description' => 'Identifier/Name for the table.',
-                    ],
-                    'label'       => [
-                        'type'        => 'string',
-                        'description' => 'Displayable singular name for the table.',
-                    ],
-                    'plural'      => [
-                        'type'        => 'string',
-                        'description' => 'Displayable plural name for the table.',
-                    ],
-                    'primary_key' => [
-                        'type'        => 'string',
-                        'description' => 'Field(s), if any, that represent the primary key of each record.',
-                    ],
-                    'name_field'  => [
-                        'type'        => 'string',
-                        'description' => 'Field(s), if any, that represent the name of each record.',
-                    ],
-                    'field'       => [
-                        'type'        => 'array',
-                        'description' => 'An array of available fields in each record.',
-                        'items'       => [
-                            '$ref' => '#/components/schemas/FieldSchema',
-                        ],
-                    ],
-                    'related'     => [
-                        'type'        => 'array',
-                        'description' => 'An array of available relationships to other tables.',
-                        'items'       => [
-                            '$ref' => '#/components/schemas/RelationshipSchema',
-                        ],
-                    ],
-                ],
-            ],
-            'FieldSchemas'  => [
+            'TableSchema'         => TableSchema::getSchema(),
+            'FieldSchemas'        => [
                 'type'       => 'object',
                 'properties' => [
                     $wrapper => [
@@ -676,97 +719,8 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
                     ],
                 ],
             ],
-            'FieldSchema'   => [
-                'type'       => 'object',
-                'properties' => [
-                    'name'               => [
-                        'type'        => 'string',
-                        'description' => 'The API name of the field.',
-                    ],
-                    'label'              => [
-                        'type'        => 'string',
-                        'description' => 'The displayable label for the field.',
-                    ],
-                    'type'               => [
-                        'type'        => 'string',
-                        'description' => 'The DreamFactory abstract data type for this field.',
-                    ],
-                    'db_type'            => [
-                        'type'        => 'string',
-                        'description' => 'The native database type used for this field.',
-                    ],
-                    'length'             => [
-                        'type'        => 'integer',
-                        'format'      => 'int32',
-                        'description' => 'The maximum length allowed (in characters for string, displayed for numbers).',
-                    ],
-                    'precision'          => [
-                        'type'        => 'integer',
-                        'format'      => 'int32',
-                        'description' => 'Total number of places for numbers.',
-                    ],
-                    'scale'              => [
-                        'type'        => 'integer',
-                        'format'      => 'int32',
-                        'description' => 'Number of decimal places allowed for numbers.',
-                    ],
-                    'default_value'      => [
-                        'type'        => 'string',
-                        'description' => 'Default value for this field.',
-                    ],
-                    'required'           => [
-                        'type'        => 'boolean',
-                        'description' => 'Is a value required for record creation.',
-                    ],
-                    'allow_null'         => [
-                        'type'        => 'boolean',
-                        'description' => 'Is null allowed as a value.',
-                    ],
-                    'fixed_length'       => [
-                        'type'        => 'boolean',
-                        'description' => 'Is the length fixed (not variable).',
-                    ],
-                    'supports_multibyte' => [
-                        'type'        => 'boolean',
-                        'description' => 'Does the data type support multibyte characters.',
-                    ],
-                    'auto_increment'     => [
-                        'type'        => 'boolean',
-                        'description' => 'Does the integer field value increment upon new record creation.',
-                    ],
-                    'is_primary_key'     => [
-                        'type'        => 'boolean',
-                        'description' => 'Is this field used as/part of the primary key.',
-                    ],
-                    'is_foreign_key'     => [
-                        'type'        => 'boolean',
-                        'description' => 'Is this field used as a foreign key.',
-                    ],
-                    'ref_table'          => [
-                        'type'        => 'string',
-                        'description' => 'For foreign keys, the referenced table name.',
-                    ],
-                    'ref_field'          => [
-                        'type'        => 'string',
-                        'description' => 'For foreign keys, the referenced table field name.',
-                    ],
-                    'validation'         => [
-                        'type'        => 'array',
-                        'description' => 'validations to be performed on this field.',
-                        'items'       => [
-                            'type' => 'string',
-                        ],
-                    ],
-                    'value'              => [
-                        'type'        => 'array',
-                        'description' => 'Selectable string values for client menus and picklist validation.',
-                        'items'       => [
-                            'type' => 'string',
-                        ],
-                    ],
-                ],
-            ],
-            'RelationshipSchemas'  => [
+            'FieldSchema'         => ColumnSchema::getSchema(),
+            'RelationshipSchemas' => [
                 'type'       => 'object',
                 'properties' => [
                     $wrapper => [
@@ -778,59 +732,7 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
                     ],
                 ],
             ],
-            'RelationshipSchema' => [
-                'type'       => 'object',
-                'properties' => [
-                    'name'               => [
-                        'type'        => 'string',
-                        'description' => 'Name of the relationship.',
-                    ],
-                    'alias'               => [
-                        'type'        => 'string',
-                        'description' => 'Alias to use in the API to override the name the relationship.',
-                    ],
-                    'label'               => [
-                        'type'        => 'string',
-                        'description' => 'Label for the relationship.',
-                    ],
-                    'description'               => [
-                        'type'        => 'string',
-                        'description' => 'Description of the relationship.',
-                    ],
-                    'type'               => [
-                        'type'        => 'string',
-                        'description' => 'Relationship type - belongs_to, has_many, many_many.',
-                    ],
-                    'field'              => [
-                        'type'        => 'string',
-                        'description' => 'The current table field that is used in the relationship.',
-                    ],
-                    'ref_table'          => [
-                        'type'        => 'string',
-                        'description' => 'The table name that is referenced by the relationship.',
-                    ],
-                    'ref_field'          => [
-                        'type'        => 'string',
-                        'description' => 'The field name that is referenced by the relationship.',
-                    ],
-                    'junction_table'     => [
-                        'type'        => 'string',
-                        'description' => 'The intermediate junction table used for many_many relationships.',
-                    ],
-                    'junction_field'     => [
-                        'type'        => 'string',
-                        'description' => 'The intermediate junction table field used for many_many relationships.',
-                    ],
-                    'junction_ref_field' => [
-                        'type'        => 'string',
-                        'description' => 'The intermediate joining table referencing field used for many_many relationships.',
-                    ],
-                    'always_fetch' => [
-                        'type'        => 'boolean',
-                        'description' => 'Always fetch this relationship when querying the parent table.',
-                    ],
-                ],
-            ],
+            'RelationshipSchema'  => RelationSchema::getSchema(),
         ];
 
         return array_merge(parent::getApiDocSchemas(), $add);
@@ -839,7 +741,7 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
     protected function getApiDocResponses()
     {
         $add = [
-            'TableSchemas'  => [
+            'TableSchemas'        => [
                 'description' => 'TableSchemas',
                 'content'     => [
                     'application/json' => [
@@ -850,7 +752,7 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
                     ],
                 ],
             ],
-            'TableSchema'   => [
+            'TableSchema'         => [
                 'description' => 'TableSchema',
                 'content'     => [
                     'application/json' => [
@@ -861,7 +763,7 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
                     ],
                 ],
             ],
-            'FieldSchemas'  => [
+            'FieldSchemas'        => [
                 'description' => 'FieldSchemas',
                 'content'     => [
                     'application/json' => [
@@ -872,7 +774,7 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
                     ],
                 ],
             ],
-            'FieldSchema'   => [
+            'FieldSchema'         => [
                 'description' => 'FieldSchema',
                 'content'     => [
                     'application/json' => [
@@ -883,7 +785,7 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
                     ],
                 ],
             ],
-            'RelationshipSchemas'  => [
+            'RelationshipSchemas' => [
                 'description' => 'RelationshipSchemas',
                 'content'     => [
                     'application/json' => [
@@ -894,7 +796,7 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
                     ],
                 ],
             ],
-            'RelationshipSchema' => [
+            'RelationshipSchema'  => [
                 'description' => 'RelationshipSchema',
                 'content'     => [
                     'application/json' => [
