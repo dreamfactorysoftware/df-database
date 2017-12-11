@@ -4209,7 +4209,7 @@ abstract class BaseDbTableResource extends BaseDbResource
 
         $paths = [
             $path                        => [
-                Verbs::GET => [
+                'get' => [
                     'summary'     => 'Retrieve one or more ' . $pluralClass . '.',
                     'description' =>
                         'Use the \'ids\' parameter to limit records that are returned. ' .
@@ -4227,7 +4227,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                 ],
             ],
             $path . '/{table_name}'      => [
-                'parameters'  => [
+                'parameters' => [
                     [
                         'name'        => 'table_name',
                         'description' => 'Name of the table to perform operations on.',
@@ -4236,7 +4236,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                         'required'    => true,
                     ],
                 ],
-                Verbs::GET    => [
+                'get'        => [
                     'summary'     => 'Retrieve one or more records.',
                     'description' =>
                         'Set the **filter** parameter to a SQL WHERE clause (optional native filter accepted in some scenarios) ' .
@@ -4274,7 +4274,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                         '200' => ['$ref' => '#/components/responses/RecordsResponse']
                     ],
                 ],
-                Verbs::POST   => [
+                'post'       => [
                     'summary'     => 'Create one or more records.',
                     'description' => 'Posted data should be an array of records wrapped in a **record** element. ' .
                         'By default, only the id property of the record is returned on success. ' .
@@ -4301,7 +4301,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                         '200' => ['$ref' => '#/components/responses/RecordsResponse']
                     ],
                 ],
-                Verbs::PUT    => [
+                'put'        => [
                     'summary'     => 'Update (replace) one or more records.',
                     'description' => 'Post data should be an array of records wrapped in a **' .
                         $wrapper .
@@ -4332,7 +4332,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                         '200' => ['$ref' => '#/components/responses/RecordsResponse']
                     ],
                 ],
-                Verbs::PATCH  => [
+                'patch'      => [
                     'summary'     => 'Update (patch) one or more records.',
                     'description' => 'Post data should be an array of records containing at least the identifying fields for each record. ' .
                         'Posted body should be a single record with name-value pairs to update wrapped in a **record** tag. ' .
@@ -4358,7 +4358,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                         '200' => ['$ref' => '#/components/responses/RecordsResponse']
                     ],
                 ],
-                Verbs::DELETE => [
+                'delete'     => [
                     'summary'     => 'Delete one or more records.',
                     'description' => 'Set the **ids** parameter to a list of record identifying (primary key) values to delete specific records. ' .
                         'Alternatively, to delete records by a large list of ids, pass the ids in the **body**. ' .
@@ -4390,7 +4390,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                 ],
             ],
             $path . '/{table_name}/{id}' => [
-                'parameters'  => [
+                'parameters' => [
                     [
                         'name'        => 'id',
                         'description' => 'Identifier of the record to retrieve.',
@@ -4406,7 +4406,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                         'required'    => true,
                     ],
                 ],
-                Verbs::GET    => [
+                'get'        => [
                     'summary'     => 'Retrieve one record by identifier.',
                     'description' => 'Use the **fields** parameter to limit properties that are returned. ' .
                         'By default, all fields are returned.',
@@ -4421,7 +4421,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                         '200' => ['$ref' => '#/components/responses/RecordResponse']
                     ],
                 ],
-                Verbs::PUT    => [
+                'put'        => [
                     'summary'     => 'Replace the content of one record by identifier.',
                     'description' => 'Post data should be an array of fields for a single record. ' .
                         'Use the **fields** parameter to return more properties. By default, the id is returned.',
@@ -4439,7 +4439,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                         '200' => ['$ref' => '#/components/responses/RecordResponse']
                     ],
                 ],
-                Verbs::PATCH  => [
+                'patch'      => [
                     'summary'     => 'Update (patch) one record by identifier.',
                     'description' => 'Post data should be an array of fields for a single record. ' .
                         'Use the **fields** parameter to return more properties. By default, the id is returned.',
@@ -4457,7 +4457,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                         '200' => ['$ref' => '#/components/responses/RecordResponse']
                     ],
                 ],
-                Verbs::DELETE => [
+                'delete'     => [
                     'summary'     => 'Delete one record by identifier.',
                     'description' => 'Use the **fields** parameter to return more deleted properties. By default, the id is returned.',
                     'operationId' => $this->formOperationName(Verbs::DELETE, 'Record'),
