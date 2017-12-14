@@ -5,9 +5,10 @@ namespace DreamFactory\Core\Database\Resources;
 use DreamFactory\Core\Exceptions\InternalServerErrorException;
 use DreamFactory\Core\Exceptions\NotFoundException;
 use DreamFactory\Core\Exceptions\BadRequestException;
+use DreamFactory\Core\GraphQL\Contracts\GraphQLHandlerInterface;
 use DreamFactory\Core\Resources\BaseRestResource;
 
-class DbAdmin extends BaseDbResource
+class DbAdmin extends BaseDbResource implements GraphQLHandlerInterface
 {
     //*************************************************************************
     //	Constants
@@ -257,10 +258,11 @@ class DbAdmin extends BaseDbResource
     }
 
     /**
+     * @param bool $refresh
      * @return array
      * @throws InternalServerErrorException
      */
-    public function getGraphQLSchema()
+    public function getGraphQLSchema($refresh = false)
     {
         $base = ['query' => [], 'mutation' => [], 'types' => []];
         foreach ($this->getResourceHandlers() as $resourceInfo) {
@@ -272,7 +274,7 @@ class DbAdmin extends BaseDbResource
 
             /** @var BaseRestResource $resource */
             $resource = $this->instantiateResource($className, $resourceInfo);
-            if (method_exists($resource, 'getGraphQLSchema')) {
+            if ($resource instanceof GraphQLHandlerInterface) {
                 $content = $resource->getGraphQLSchema();
                 if (isset($content['query'])) {
                     $base['query'] = array_merge((array)array_get($base, 'query'), (array)$content['query']);

@@ -8,8 +8,6 @@ use DreamFactory\Core\Database\Components\DbSchemaExtras;
 use DreamFactory\Core\Database\Enums\DbFunctionUses;
 use DreamFactory\Core\Database\Enums\FunctionTypes;
 use DreamFactory\Core\Database\Resources\BaseDbResource;
-use DreamFactory\Core\Database\Resources\DbAdmin;
-use DreamFactory\Core\Database\Resources\DbSchema;
 use DreamFactory\Core\Database\Resources\DbSchemaResource;
 use DreamFactory\Core\Database\Schema\ColumnSchema;
 use DreamFactory\Core\Database\Schema\RelationSchema;
@@ -19,6 +17,7 @@ use DreamFactory\Core\Enums\DbResourceTypes;
 use DreamFactory\Core\Enums\DbSimpleTypes;
 use DreamFactory\Core\Exceptions\InternalServerErrorException;
 use DreamFactory\Core\Exceptions\NotImplementedException;
+use DreamFactory\Core\GraphQL\Contracts\GraphQLHandlerInterface;
 use DreamFactory\Core\Resources\BaseRestResource;
 use DreamFactory\Core\Services\BaseRestService;
 use DreamFactory\Core\Utility\ResourcesWrapper;
@@ -26,7 +25,7 @@ use Illuminate\Database\ConnectionInterface;
 use ServiceManager;
 use Config;
 
-abstract class BaseDbService extends BaseRestService implements DbExtrasInterface
+abstract class BaseDbService extends BaseRestService implements DbExtrasInterface, GraphQLHandlerInterface
 {
     use DbSchemaExtras;
 
@@ -119,20 +118,10 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
     public function getResourceHandlers()
     {
         return [
-//            DbAdmin::RESOURCE_NAME             => [
-//                'name'       => DbAdmin::RESOURCE_NAME,
-//                'class_name' => DbAdmin::class,
-//                'label'      => 'Admin',
-//            ],
-//            DbSchema::RESOURCE_NAME            => [
-//                'name'       => DbSchema::RESOURCE_NAME,
-//                'class_name' => DbSchema::class,
-//                'label'      => 'Schema',
-//            ],
-            DbSchemaResource::RESOURCE_NAME    => [
+            DbSchemaResource::RESOURCE_NAME => [
                 'name'       => DbSchemaResource::RESOURCE_NAME,
                 'class_name' => DbSchemaResource::class,
-                'label'      => 'Admin Table',
+                'label'      => 'Schema Table',
             ],
         ];
     }
@@ -173,36 +162,44 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
     }
 
     /**
+     * @param bool $refresh
      * @return array
      * @throws InternalServerErrorException
      */
-    public function getGraphQLSchema()
+    public function getGraphQLSchema($refresh = false)
     {
-        $base = ['query' => [], 'mutation' => [], 'types' => []];
-        foreach ($this->getResourceHandlers() as $resourceInfo) {
-            $className = array_get($resourceInfo, 'class_name');
-            if (!class_exists($className)) {
-                throw new InternalServerErrorException('Service configuration class name lookup failed for resource ' .
-                    $className);
-            }
-
-            /** @var BaseRestResource $resource */
-            $resource = $this->instantiateResource($className, $resourceInfo);
-            if (method_exists($resource, 'getGraphQLSchema')) {
-                $content = $resource->getGraphQLSchema();
-                if (isset($content['query'])) {
-                    $base['query'] = array_merge((array)array_get($base, 'query'), (array)$content['query']);
-                }
-                if (isset($content['mutation'])) {
-                    $base['mutation'] = array_merge((array)array_get($base, 'mutation'), (array)$content['mutation']);
-                }
-                if (isset($content['types'])) {
-                    $base['types'] = array_merge((array)array_get($base, 'types'), (array)$content['types']);
-                }
-            }
+        $cacheKey = 'graphql_schema';
+        if ($refresh) {
+            $this->removeFromCache($cacheKey);
         }
 
-        return $base;
+        return $this->rememberCacheForever($cacheKey, function () use ($refresh) {
+            $base = ['query' => [], 'mutation' => [], 'types' => []];
+            foreach ($this->getResourceHandlers() as $resourceInfo) {
+                $className = array_get($resourceInfo, 'class_name');
+                if (!class_exists($className)) {
+                    throw new InternalServerErrorException('Service configuration class name lookup failed for resource ' .
+                        $className);
+                }
+
+                /** @var BaseRestResource $resource */
+                $resource = $this->instantiateResource($className, $resourceInfo);
+                if ($resource instanceof GraphQLHandlerInterface) {
+                    $content = $resource->getGraphQLSchema($refresh);
+                    if (isset($content['query'])) {
+                        $base['query'] = array_merge((array)array_get($base, 'query'), (array)$content['query']);
+                    }
+                    if (isset($content['mutation'])) {
+                        $base['mutation'] = array_merge((array)array_get($base, 'mutation'), (array)$content['mutation']);
+                    }
+                    if (isset($content['types'])) {
+                        $base['types'] = array_merge((array)array_get($base, 'types'), (array)$content['types']);
+                    }
+                }
+            }
+
+            return $base;
+        });
     }
 
     /**

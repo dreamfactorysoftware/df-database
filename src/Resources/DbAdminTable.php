@@ -19,7 +19,6 @@ use DreamFactory\Core\Exceptions\InternalServerErrorException;
 use DreamFactory\Core\Exceptions\NotFoundException;
 use DreamFactory\Core\Exceptions\RestException;
 use DreamFactory\Core\Exceptions\BadRequestException;
-use DreamFactory\Core\GraphQL\Query\BaseListQuery;
 use DreamFactory\Core\GraphQL\Query\BaseQuery;
 use DreamFactory\Core\GraphQL\Type\BaseType;
 use DreamFactory\Core\Models\Service;
@@ -2412,9 +2411,9 @@ class DbAdminTable extends BaseDbResource
             },
         ]);
         $qName = $this->formOperationName(Verbs::GET, null, true);
-        $queries[$qName] = new BaseListQuery([
+        $queries[$qName] = new BaseQuery([
             'name'    => $qName,
-            'type'    => $tName,
+            'type'    => '['.$tName.']',
             'args'    => [
                 'ids'     => ['name' => 'ids', 'type' => Type::string()],
                 'schema'  => ['name' => 'refresh', 'type' => Type::string()],
@@ -2436,9 +2435,9 @@ class DbAdminTable extends BaseDbResource
             },
         ]);
         $qName = $qName . 'Names';
-        $queries[$qName] = new BaseListQuery([
+        $queries[$qName] = new BaseQuery([
             'name'    => $qName,
-            'type'    => Type::string(),
+            'type'    => '['.Type::STRING.']',
             'args'    => [
                 'schema'  => ['name' => 'refresh', 'type' => Type::string()],
                 'refresh' => ['name' => 'refresh', 'type' => Type::boolean()],

@@ -5,6 +5,7 @@ namespace DreamFactory\Core\Database\Resources;
 use DreamFactory\Core\Components\DataValidator;
 use DreamFactory\Core\Components\Service2ServiceRequest;
 use DreamFactory\Core\Contracts\ServiceInterface;
+use DreamFactory\Core\Database\Components\TableDescribeQuery;
 use DreamFactory\Core\Database\Components\TableDescriber;
 use DreamFactory\Core\Database\Components\TableMutation;
 use DreamFactory\Core\Database\Components\TableQuery;
@@ -27,16 +28,16 @@ use DreamFactory\Core\Exceptions\NotFoundException;
 use DreamFactory\Core\Exceptions\NotImplementedException;
 use DreamFactory\Core\Exceptions\InternalServerErrorException;
 use DreamFactory\Core\Exceptions\RestException;
-use DreamFactory\Core\GraphQL\Query\BaseListQuery;
-use DreamFactory\Core\GraphQL\Query\BaseQuery;
+use DreamFactory\Core\GraphQL\Contracts\GraphQLHandlerInterface;
+use DreamFactory\Core\GraphQL\Query\ServiceMultiResourceQuery;
+use DreamFactory\Core\GraphQL\Query\ServiceResourceListQuery;
 use DreamFactory\Core\GraphQL\Type\BaseType;
 use DreamFactory\Core\Utility\ResourcesWrapper;
 use DreamFactory\Core\Utility\Session;
-use GraphQL\Type\Definition\ResolveInfo;
 use GraphQL\Type\Definition\Type;
 use ServiceManager;
 
-abstract class BaseDbTableResource extends BaseDbResource
+abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHandlerInterface
 {
     use DataValidator, TableDescriber;
 
@@ -318,6 +319,7 @@ abstract class BaseDbTableResource extends BaseDbResource
      * @param string $action
      *
      * @throws BadRequestException
+     * @throws ForbiddenException
      */
     protected function validateTableAccess($table, $action = null)
     {
@@ -4051,96 +4053,45 @@ abstract class BaseDbTableResource extends BaseDbResource
     }
 
     /**
+     * @param bool $refresh
      * @return array
      * @throws \Exception
      */
-    public function getGraphQLSchema()
+    public function getGraphQLSchema($refresh = false)
     {
         $service = $this->getServiceName();
 
         $queries = [];
         $tName = 'db_table';
         $qName = $this->formOperationName(Verbs::GET);
-        $queries[$qName] = new BaseQuery([
+        $queries[$qName] = new TableDescribeQuery([
             'name'    => $qName,
             'type'    => $tName,
+            'service' => $service,
+            'resource'=> '_table',
             'args'    => [
-                'name' => ['name' => 'name', 'type' => Type::nonNull(Type::string())],
+                'name' => ['name' => 'name', 'type' => Type::STRING.'!'],
             ],
-            'resolve' => function ($root, $args, $context, ResolveInfo $info) use ($service) {
-                $request = new Service2ServiceRequest(Verbs::GET, ['ids' => $args['name']]);
-                $response = ServiceManager::handleServiceRequest($request, $service, '_table');
-                $status = $response->getStatusCode();
-                $content = $response->getContent();
-                if ($status >= 300) {
-                    if (isset($content, $content['error'])) {
-                        $error = $content['error'];
-                        extract($error);
-                        /** @noinspection PhpUndefinedVariableInspection */
-                        throw new RestException($status, $message, $code);
-                    }
-
-                    throw new RestException($status, 'GraphQL query failed but returned invalid format.');
-                }
-                $response = ResourcesWrapper::unwrapResources($content);
-
-                return $response[0];
-            },
         ]);
         $qName = $this->formOperationName(Verbs::GET, null, true);
-        $queries[$qName] = new BaseListQuery([
+        $queries[$qName] = new ServiceMultiResourceQuery([
             'name'    => $qName,
-            'type'    => $tName,
+            'type'    => '['.$tName.']',
+            'service' => $service,
+            'resource'=> '_table',
             'args'    => [
-                'ids'    => ['name' => 'ids', 'type' => Type::listOf(Type::string())],
-                'schema' => ['name' => 'schema', 'type' => Type::string()],
+                'ids'    => ['name' => 'ids', 'type' => '['.Type::STRING.']'],
+                'schema' => ['name' => 'schema', 'type' => Type::STRING],
             ],
-            'resolve' => function ($root, $args, $context, ResolveInfo $info) use ($service) {
-                $request = new Service2ServiceRequest(Verbs::GET, $args);
-                $response = ServiceManager::handleServiceRequest($request, $service, '_table');
-                $status = $response->getStatusCode();
-                $content = $response->getContent();
-                if ($status >= 300) {
-                    if (isset($content, $content['error'])) {
-                        $error = $content['error'];
-                        extract($error);
-                        /** @noinspection PhpUndefinedVariableInspection */
-                        throw new RestException($status, $message, $code);
-                    }
-
-                    throw new RestException($status, 'GraphQL query failed but returned invalid format.');
-                }
-                $response = ResourcesWrapper::unwrapResources($content);
-
-                return $response;
-            },
         ]);
         $qName = $qName . 'Names';
-        $queries[$qName] = new BaseListQuery([
+        $queries[$qName] = new ServiceResourceListQuery([
             'name'    => $qName,
-            'type'    => Type::string(),
+            'service' => $service,
+            'resource'=> '_table',
             'args'    => [
-                'schema' => ['name' => 'schema', 'type' => Type::string()],
+                'schema' => ['name' => 'schema', 'type' => Type::STRING],
             ],
-            'resolve' => function ($root, $args, $context, ResolveInfo $info) use ($service) {
-                $request = new Service2ServiceRequest(Verbs::GET, array_merge($args, ['as_list' => true]));
-                $response = ServiceManager::handleServiceRequest($request, $service, '_table');
-                $status = $response->getStatusCode();
-                $content = $response->getContent();
-                if ($status >= 300) {
-                    if (isset($content, $content['error'])) {
-                        $error = $content['error'];
-                        extract($error);
-                        /** @noinspection PhpUndefinedVariableInspection */
-                        throw new RestException($status, $message, $code);
-                    }
-
-                    throw new RestException($status, 'GraphQL query failed but returned invalid format.');
-                }
-                $response = ResourcesWrapper::unwrapResources($content);
-
-                return $response;
-            },
         ]);
         $mutations = [];
         $types = [
@@ -4159,12 +4110,11 @@ abstract class BaseDbTableResource extends BaseDbResource
                 'description' => $tableSchema->description,
                 'schema'      => $tableSchema
             ]);
-
             $qName = $this->formOperationName(Verbs::GET, $name, true);
             $queries[$qName] = new TableQuery([
                 'service' => $service,
                 'name'    => $qName,
-                'type'    => $tName,
+                'type'    => '['.$tName.']',
                 'schema'  => $tableSchema,
             ]);
             $qName = $this->formOperationName(Verbs::GET, $name);
@@ -4180,7 +4130,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                 $mutations[$qName] = new TableMutation([
                     'service' => $service,
                     'name'    => $qName,
-                    'type'    => $tName,
+                    'type'    => '['.$tName.']',
                     'schema'  => $tableSchema,
                     'verb'    => $verb,
                 ]);

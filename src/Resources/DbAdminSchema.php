@@ -10,7 +10,6 @@ use DreamFactory\Core\Enums\Verbs;
 use DreamFactory\Core\Enums\VerbsMask;
 use DreamFactory\Core\Events\ServiceModifiedEvent;
 use DreamFactory\Core\Exceptions\BadRequestException;
-use DreamFactory\Core\GraphQL\Query\BaseListQuery;
 use DreamFactory\Core\GraphQL\Query\BaseQuery;
 use DreamFactory\Core\GraphQL\Type\BaseType;
 use DreamFactory\Core\Models\Service;
@@ -270,9 +269,9 @@ class DbAdminSchema extends BaseDbResource
             },
         ]);
         $qName = $this->formOperationName(Verbs::GET, null, true);
-        $queries[$qName] = new BaseListQuery([
+        $queries[$qName] = new BaseQuery([
             'name'    => $qName,
-            'type'    => Type::string(),
+            'type'    => '['.Type::STRING.']',
             'args'    => [
                 'refresh' => ['name' => 'refresh', 'type' => Type::boolean()],
             ],
@@ -281,9 +280,9 @@ class DbAdminSchema extends BaseDbResource
             },
         ]);
         $qName = $qName . 'Names';
-        $queries[$qName] = new BaseListQuery([
+        $queries[$qName] = new BaseQuery([
             'name'    => $qName,
-            'type'    => Type::string(),
+            'type'    => '['.Type::STRING.']',
             'args'    => [
                 'refresh' => ['name' => 'refresh', 'type' => Type::boolean()],
             ],
