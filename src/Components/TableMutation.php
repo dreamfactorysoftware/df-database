@@ -3,11 +3,11 @@
 namespace DreamFactory\Core\Database\Components;
 
 use DreamFactory\Core\Components\Service2ServiceRequest;
-use DreamFactory\Core\Enums\Verbs;
 use DreamFactory\Core\Exceptions\RestException;
 use DreamFactory\Core\Utility\ResourcesWrapper;
 use GraphQL\Type\Definition\ResolveInfo;
 use GraphQL\Type\Definition\Type;
+use GraphQL;
 use ServiceManager;
 
 class TableMutation extends TableQuery
@@ -15,6 +15,7 @@ class TableMutation extends TableQuery
     public function args()
     {
         $pkArgs = [
+            'records'  => ['name' => 'records', 'type' => Type::listOf(GraphQL::type($this->makeTypeName(true)))],
             'ids'      => ['name' => 'ids', 'type' => Type::listOf(Type::int())],
             'id_field' => ['name' => 'id_field', 'type' => Type::string()],
             'id_type'  => ['name' => 'id_type', 'type' => Type::string()],
@@ -39,16 +40,15 @@ class TableMutation extends TableQuery
     {
         $table = $this->tableSchema->getName(true);
         $selection = $this->getFieldSelection($info);
+        $content = null;
+        if (isset($args['records'])) {
+            $content = $args['records'];
+            unset($args['records']);
+        }
         $params = array_merge($args, $selection);
         $request = new Service2ServiceRequest($this->verb, $params);
-        switch ($this->verb) {
-            case Verbs::POST:
-            case Verbs::PUT:
-            case Verbs::PATCH:
-                $request->setContent(['resource' => [$args]]);
-                break;
-            case Verbs::DELETE:
-                break;
+        if ($content) {
+            $request->setContent(['resource' => $content]);
         }
         $response = ServiceManager::handleServiceRequest($request, $this->service, '_table/' . $table);
         $status = $response->getStatusCode();

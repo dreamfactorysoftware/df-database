@@ -2,32 +2,28 @@
 
 namespace DreamFactory\Core\Database\Components;
 
-use DreamFactory\Core\Components\Service2ServiceRequest;
 use DreamFactory\Core\Database\Schema\TableSchema;
-use DreamFactory\Core\Enums\Verbs;
-use DreamFactory\Core\Exceptions\RestException;
-use DreamFactory\Core\GraphQL\Query\BaseQuery;
+use DreamFactory\Core\GraphQL\Query\ServiceSingleResourceQuery;
 use DreamFactory\Core\GraphQL\Type\BaseType;
 use GraphQL\Type\Definition\ResolveInfo;
 use GraphQL\Type\Definition\Type;
-use ServiceManager;
+use GraphQL;
 
-class TableRecordQuery extends BaseQuery
+class TableRecordQuery extends ServiceSingleResourceQuery
 {
-    /** @var string */
-    protected $service;
     /** @var TableSchema */
     protected $tableSchema;
-    /** @var string */
-    protected $verb;
 
     public function __construct($attributes = [])
     {
-        $this->service = array_get($attributes, 'service');
         $this->tableSchema = array_get($attributes, 'schema');
-        $this->verb = array_get($attributes, 'verb', Verbs::GET);
 
-        parent::__construct(array_except($attributes, ['service', 'schema','verb']));
+        parent::__construct(array_except($attributes, ['schema']));
+    }
+
+    public function type()
+    {
+        return GraphQL::type($this->makeTypeName());
     }
 
     public function args()
@@ -46,32 +42,27 @@ class TableRecordQuery extends BaseQuery
      * @param             $context
      * @param ResolveInfo $info
      * @return array
-     * @throws RestException
+     * @throws \DreamFactory\Core\Exceptions\RestException
      * @throws \Exception
      */
     public function resolve($root, $args, $context, ResolveInfo $info)
     {
         $table = $this->tableSchema->getName(true);
-        $selection = $this->getFieldSelection($info);
         $id = $this->getIdentifier($args);
-        $params = array_merge($args, $selection);
-        $request = new Service2ServiceRequest($this->verb, $params);
-        $response = ServiceManager::handleServiceRequest($request, $this->service, '_table/' . $table . '/' . $id);
-        $status = $response->getStatusCode();
-        $content = $response->getContent();
-        if ($status >= 300) {
-            if (isset($content, $content['error'])) {
-                $error = $content['error'];
-                extract($error);
-                /** @noinspection PhpUndefinedVariableInspection */
-                throw new RestException($status, $message, $code);
-            }
+        $this->resource = '_table/' . $table . '/' . $id;
 
-            throw new RestException($status, 'GraphQL query failed but returned invalid format.');
+        return parent::resolve($root, $args, $context, $info);
+    }
+
+    protected function makeTypeName($as_input = false)
+    {
+        $name = $this->tableSchema->getName(true);
+        $name = $this->service . '_table_' . $name;
+        if ($as_input) {
+            $name .= '_input';
         }
-        $response = $content;
 
-        return $response;
+        return $name;
     }
 
     protected function getFieldSelection(ResolveInfo $info)

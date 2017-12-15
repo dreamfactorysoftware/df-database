@@ -2424,7 +2424,7 @@ class DbSchemaResource extends BaseDbResource implements GraphQLHandlerInterface
         $qName = $this->formOperationName(Verbs::GET, null, true);
         $queries[$qName] = new ServiceMultiResourceQuery([
             'name'     => $qName,
-            'type'     => '['.$tName.']',
+            'type'     => $tName,
             'service'  => $service,
             'resource' => '_schema',
             'args'     => [

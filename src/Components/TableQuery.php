@@ -2,16 +2,18 @@
 
 namespace DreamFactory\Core\Database\Components;
 
-use DreamFactory\Core\Components\Service2ServiceRequest;
 use DreamFactory\Core\Exceptions\RestException;
 use DreamFactory\Core\Utility\ResourcesWrapper;
 use GraphQL\Type\Definition\ResolveInfo;
 use GraphQL\Type\Definition\Type;
-use GraphQL;
-use ServiceManager;
 
 class TableQuery extends TableRecordQuery
 {
+    public function type()
+    {
+        return Type::listOf(parent::type());
+    }
+
     public function args()
     {
         $pkArgs = [
@@ -40,23 +42,9 @@ class TableQuery extends TableRecordQuery
     public function resolve($root, $args, $context, ResolveInfo $info)
     {
         $table = $this->tableSchema->getName(true);
-        $selection = $this->getFieldSelection($info);
-        $params = array_merge($args, $selection);
-        $request = new Service2ServiceRequest($this->verb, $params);
-        $response = ServiceManager::handleServiceRequest($request, $this->service, '_table/' . $table);
-        $status = $response->getStatusCode();
-        $content = $response->getContent();
-        if ($status >= 300) {
-            if (isset($content, $content['error'])) {
-                $error = $content['error'];
-                extract($error);
-                /** @noinspection PhpUndefinedVariableInspection */
-                throw new RestException($status, $message, $code);
-            }
-
-            throw new RestException($status, 'GraphQL query failed but returned invalid format.');
-        }
-        $response = ResourcesWrapper::unwrapResources($content);
+        $this->resource = '_table/' . $table;
+        $result = parent::resolve($root, $args, $context, $info);
+        $response = ResourcesWrapper::unwrapResources($result);
 
         return $response;
     }

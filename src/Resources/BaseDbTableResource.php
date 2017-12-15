@@ -31,6 +31,7 @@ use DreamFactory\Core\Exceptions\RestException;
 use DreamFactory\Core\GraphQL\Contracts\GraphQLHandlerInterface;
 use DreamFactory\Core\GraphQL\Query\ServiceMultiResourceQuery;
 use DreamFactory\Core\GraphQL\Query\ServiceResourceListQuery;
+use DreamFactory\Core\GraphQL\Type\BaseInputType;
 use DreamFactory\Core\GraphQL\Type\BaseType;
 use DreamFactory\Core\Utility\ResourcesWrapper;
 use DreamFactory\Core\Utility\Session;
@@ -4076,7 +4077,7 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
         $qName = $this->formOperationName(Verbs::GET, null, true);
         $queries[$qName] = new ServiceMultiResourceQuery([
             'name'    => $qName,
-            'type'    => '['.$tName.']',
+            'type'    => $tName,
             'service' => $service,
             'resource'=> '_table',
             'args'    => [
@@ -4110,18 +4111,22 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                 'description' => $tableSchema->description,
                 'schema'      => $tableSchema
             ]);
+            $tiName = $service . '_table_' . $name . '_input';
+            $types[$tiName] = new BaseInputType([
+                'name'        => $tiName,
+                'description' => $tableSchema->description,
+                'schema'      => $tableSchema
+            ]);
             $qName = $this->formOperationName(Verbs::GET, $name, true);
             $queries[$qName] = new TableQuery([
                 'service' => $service,
                 'name'    => $qName,
-                'type'    => '['.$tName.']',
                 'schema'  => $tableSchema,
             ]);
             $qName = $this->formOperationName(Verbs::GET, $name);
             $queries[$qName] = new TableRecordQuery([
                 'service' => $service,
                 'name'    => $qName,
-                'type'    => $tName,
                 'schema'  => $tableSchema,
             ]);
 
@@ -4130,7 +4135,6 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                 $mutations[$qName] = new TableMutation([
                     'service' => $service,
                     'name'    => $qName,
-                    'type'    => '['.$tName.']',
                     'schema'  => $tableSchema,
                     'verb'    => $verb,
                 ]);
@@ -4138,7 +4142,6 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                 $mutations[$qName] = new TableRecordMutation([
                     'service' => $service,
                     'name'    => $qName,
-                    'type'    => $tName,
                     'schema'  => $tableSchema,
                     'verb'    => $verb,
                 ]);
