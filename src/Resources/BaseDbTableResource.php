@@ -4066,31 +4066,31 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
         $tName = 'db_table';
         $qName = $this->formOperationName(Verbs::GET);
         $queries[$qName] = new TableDescribeQuery([
-            'name'    => $qName,
-            'type'    => $tName,
-            'service' => $service,
-            'resource'=> '_table',
-            'args'    => [
-                'name' => ['name' => 'name', 'type' => Type::STRING.'!'],
+            'name'     => $qName,
+            'type'     => $tName,
+            'service'  => $service,
+            'resource' => '_table',
+            'args'     => [
+                'name' => ['name' => 'name', 'type' => Type::STRING . '!'],
             ],
         ]);
         $qName = $this->formOperationName(Verbs::GET, null, true);
         $queries[$qName] = new ServiceMultiResourceQuery([
-            'name'    => $qName,
-            'type'    => $tName,
-            'service' => $service,
-            'resource'=> '_table',
-            'args'    => [
-                'ids'    => ['name' => 'ids', 'type' => '['.Type::STRING.']'],
+            'name'     => $qName,
+            'type'     => $tName,
+            'service'  => $service,
+            'resource' => '_table',
+            'args'     => [
+                'ids'    => ['name' => 'ids', 'type' => '[' . Type::STRING . ']'],
                 'schema' => ['name' => 'schema', 'type' => Type::STRING],
             ],
         ]);
         $qName = $qName . 'Names';
         $queries[$qName] = new ServiceResourceListQuery([
-            'name'    => $qName,
-            'service' => $service,
-            'resource'=> '_table',
-            'args'    => [
+            'name'     => $qName,
+            'service'  => $service,
+            'resource' => '_table',
+            'args'     => [
                 'schema' => ['name' => 'schema', 'type' => Type::STRING],
             ],
         ]);
@@ -4112,11 +4112,13 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                 'schema'      => $tableSchema
             ]);
             $tiName = $service . '_table_' . $name . '_input';
-            $types[$tiName] = new BaseInputType([
+            $types[$tiName] = new BaseType([
                 'name'        => $tiName,
                 'description' => $tableSchema->description,
-                'schema'      => $tableSchema
+                'schema'      => $tableSchema,
+                'for_input'   => true,
             ]);
+
             $qName = $this->formOperationName(Verbs::GET, $name, true);
             $queries[$qName] = new TableQuery([
                 'service' => $service,
