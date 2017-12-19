@@ -4,7 +4,6 @@ namespace DreamFactory\Core\Database\Resources;
 
 use DreamFactory\Core\Components\DataValidator;
 use DreamFactory\Core\Components\Service2ServiceRequest;
-use DreamFactory\Core\Contracts\ServiceInterface;
 use DreamFactory\Core\Database\Components\TableDescribeQuery;
 use DreamFactory\Core\Database\Components\TableDescriber;
 use DreamFactory\Core\Database\Components\TableMutation;
@@ -31,7 +30,6 @@ use DreamFactory\Core\Exceptions\RestException;
 use DreamFactory\Core\GraphQL\Contracts\GraphQLHandlerInterface;
 use DreamFactory\Core\GraphQL\Query\ServiceMultiResourceQuery;
 use DreamFactory\Core\GraphQL\Query\ServiceResourceListQuery;
-use DreamFactory\Core\GraphQL\Type\BaseInputType;
 use DreamFactory\Core\GraphQL\Type\BaseType;
 use DreamFactory\Core\Utility\ResourcesWrapper;
 use DreamFactory\Core\Utility\Session;
@@ -1871,9 +1869,9 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
      * @param null   $params
      *
      * @return mixed|null
-     * @throws \DreamFactory\Core\Exceptions\ForbiddenException
-     * @throws \DreamFactory\Core\Exceptions\InternalServerErrorException
-     * @throws \DreamFactory\Core\Exceptions\RestException
+     * @throws InternalServerErrorException
+     * @throws RestException
+     * @throws \Exception
      */
     protected function retrieveVirtualRecords($serviceName, $resource, $params = null)
     {
@@ -1881,14 +1879,11 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
             return null;
         }
 
-        $result = null;
         $params = (is_array($params) ? $params : []);
-
         $request = new Service2ServiceRequest(Verbs::GET, $params);
 
         //  Now set the request object and go...
-        $service = ServiceManager::getService($serviceName);
-        $response = $service->handleRequest($request, $resource);
+        $response = ServiceManager::handleServiceRequest($request, $serviceName, $resource);
         $content = $response->getContent();
         $status = $response->getStatusCode();
 
@@ -1925,10 +1920,10 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
      * @param null|array $params
      *
      * @return mixed|null
-     * @throws \DreamFactory\Core\Exceptions\ForbiddenException
-     * @throws \DreamFactory\Core\Exceptions\InternalServerErrorException
-     * @throws \DreamFactory\Core\Exceptions\RestException
-     * @internal param $path
+     * @throws InternalServerErrorException
+     * @throws NotImplementedException
+     * @throws RestException
+     * @throws \Exception
      */
     protected function handleVirtualRecords($serviceName, $resource, $verb, $records = null, $params = null)
     {
@@ -1946,9 +1941,7 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
         }
 
         //  Now set the request object and go...
-        /** @var ServiceInterface $service */
-        $service = ServiceManager::getService($serviceName);
-        $response = $service->handleRequest($request, $resource);
+        $response = ServiceManager::handleServiceRequest($request, $serviceName, $resource);
         $content = $response->getContent();
         $status = $response->getStatusCode();
 
@@ -2061,9 +2054,6 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                     throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '{$relation->refField} not found.");
                 }
 
-                // check for access
-                Session::checkServicePermission(Verbs::GET, $refService, '_table/' . $refTable);
-
                 // Get records
                 $refFieldName = $refField->getName(true);
                 $extras[ApiOptions::FILTER] = "($refFieldName IN (" . implode(',', $values) . '))';
@@ -2102,9 +2092,6 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                     throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '{$relation->refField} not found.");
                 }
 
-                // check for access
-                Session::checkServicePermission(Verbs::GET, $refService, '_table/' . $refTable);
-
                 // Get records
                 $refFieldName = $refField->getName(true);
                 $extras[ApiOptions::FILTER] = "($refFieldName IN (" . implode(',', $values) . '))';
@@ -2142,9 +2129,6 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                 if (empty($refField = $refSchema->getColumn($relation->refField))) {
                     throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '{$relation->refField} not found.");
                 }
-
-                // check for access
-                Session::checkServicePermission(Verbs::GET, $refService, '_table/' . $refTable);
 
                 // Get records
                 $refFieldName = $refField->getName(true);
@@ -2188,9 +2172,6 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                     throw new InternalServerErrorException('Many to many relationship not configured properly.');
                 }
 
-                // check for access
-                Session::checkServicePermission(Verbs::GET, $junctionService, '_table/' . $junctionTable);
-
                 // Get records
                 $junctionFieldName = $junctionField->getName(true);
                 $junctionRefFieldName = $junctionRefField->getName(true);
@@ -2219,9 +2200,6 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                             throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '{$relation->refField} not found.");
                         }
                         $refFieldName = $refField->getName(true);
-
-                        // check for access
-                        Session::checkServicePermission(Verbs::GET, $refService, '_table/' . $refTable);
 
                         // Get records
                         $filter = $refFieldName . ' IN (' . implode(',', $relatedIds) . ')';
@@ -2308,9 +2286,6 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                 $insertMany[] = $parent;
             } else {
                 // update or insert a parent
-                // check for access
-                Session::checkServicePermission(Verbs::GET, $refService, '_table/' . $refTable);
-
                 // Get records
                 $filterVal = ('string' === gettype($id)) ? "'$id'" : $id;
                 $temp = [ApiOptions::FILTER => "$pkFieldAlias = $filterVal"];
@@ -2387,9 +2362,6 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
             $deleteRelated = (!$refField->allowNull && $allow_delete);
 
             if (empty($child_record)) {
-                // check for access
-                Session::checkServicePermission(Verbs::GET, $refService, '_table/' . $refTable);
-
                 // Get record
                 $temp = [
                     ApiOptions::FILTER => $refFieldAlias . ' = ' . $parent_id,
@@ -2444,9 +2416,6 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                         if ($pkAutoSet) {
                             $this->updateForeignRecords($refService, $refSchema, $pkField, [$child_record]);
                         } else {
-                            // check for access
-                            Session::checkServicePermission(Verbs::GET, $refService, '_table/' . $refTable);
-
                             $temp = [ApiOptions::FILTER => $pkFieldAlias . ' = ' . $id];
                             $matchIds = $this->retrieveVirtualRecords($refService, '_table/' . $refTable, $temp);
                             if ($found = static::findRecordByNameValue($matchIds, $pkFieldAlias, $id)) {
@@ -2562,9 +2531,6 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
 
             // resolve any upsert situations
             if (!empty($upsertMany)) {
-                // check for access
-                Session::checkServicePermission(Verbs::GET, $refService, '_table/' . $refTable);
-
                 // Get records
                 $checkIds = array_keys($upsertMany);
                 if (count($checkIds) > 1) {
@@ -2617,8 +2583,6 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
 
     protected function createForeignRecords($service, TableSchema $schema, $records)
     {
-        // do we have permission to do so?
-        Session::checkServicePermission(Verbs::POST, $service, '_table/' . $schema->getName(true));
 //        if (!empty($service) && ($service !== $this->getServiceName())) {
         $newIds = $this->handleVirtualRecords($service, '_table/' . $schema->getName(true), Verbs::POST, $records);
 //        } else {
@@ -2646,8 +2610,6 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
         ColumnSchema $linkerField,
         $records
     ) {
-        // do we have permission to do so?
-        Session::checkServicePermission(Verbs::PUT, $service, '_table/' . $schema->getName(true));
 //        if (!empty($service) && ($service !== $this->getServiceName())) {
         $this->handleVirtualRecords($service, '_table/' . $schema->getName(true), Verbs::PATCH, $records);
 //        } else {
@@ -2686,8 +2648,6 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
         $linkerIds,
         $record
     ) {
-        // do we have permission to do so?
-        Session::checkServicePermission(Verbs::PUT, $service, '_table/' . $schema->getName(true));
 //        if (!empty($service) && ($service !== $this->getServiceName())) {
         $temp = [ApiOptions::IDS => $linkerIds, ApiOptions::ID_FIELD => $linkerField->getName(true)];
         $this->handleVirtualRecords($service, '_table/' . $schema->getName(true), Verbs::PATCH, $record, $temp);
@@ -2722,8 +2682,6 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
         $linkerIds,
         $addCondition = null
     ) {
-        // do we have permission to do so?
-        Session::checkServicePermission(Verbs::DELETE, $service, '_table/' . $schema->getName(true));
 //        if (!empty($service) && ($service !== $this->getServiceName())) {
         if (!empty($addCondition) && is_array($addCondition)) {
             $filter = '(' . $linkerField->getName(true) . ' IN (' . implode(',', $$linkerIds) . '))';
@@ -2828,9 +2786,6 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                 throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '{$relation->junctionRefField} not found.");
             }
 
-            // check for access
-            Session::checkServicePermission(Verbs::GET, $junctionService, '_table/' . $junctionTable);
-
             // Get records
             $filter = "({$junctionField->getName(true)} = $one_id) AND ({$junctionRefField->getName(true)} IS NOT NULL)";
             $temp = [ApiOptions::FILTER => $filter, ApiOptions::FIELDS => $junctionRefField->getName(true)];
@@ -2887,9 +2842,6 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
 
             // resolve any upsert situations
             if (!empty($upsertMany)) {
-                // check for access
-                Session::checkServicePermission(Verbs::GET, $refService, '_table/' . $refTable);
-
                 // Get records
                 $checkIds = array_keys($upsertMany);
                 if (count($checkIds) > 1) {
