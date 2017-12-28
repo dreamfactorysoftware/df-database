@@ -14,7 +14,7 @@ For more information, see the [full platform repository](https://github.com/drea
 Edit your project’s composer.json to require the following package.
 
 	“require”:{
-		"dreamfactory/df-database": "~0.8.0"
+		"dreamfactory/df-database": "~0.9.0"
 	}
 
 ## Feedback and Contributions

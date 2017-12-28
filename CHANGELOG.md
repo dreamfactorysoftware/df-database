@@ -3,9 +3,17 @@ All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
+
+## [0.9.0] - 2017-12-26
 ### Added
-- DF-1224 Added ability to set different default limits (max_records_returned) per service
 - DF-1252 GraphQL support
+- DF-1224 Added ability to set different default limits (max_records_returned) per service
+- DF-1186 Add exceptions for missing data when generating relationships
+- Added package discovery
+### Changed
+- DF-1150 Update copyright and support email
+- Correct designation for HAS_ONE relationship
+- Cleanup use of checkServicePermission, use ServiceManager where applicable
 
 ## [0.8.0] - 2017-11-03
 ### Changed
@@ -82,7 +90,8 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 ## 0.1.0 - 2015-10-24
 First official release working with the new [dreamfactory](https://github.com/dreamfactorysoftware/dreamfactory) project.
 
-[Unreleased]: https://github.com/dreamfactorysoftware/df-database/compare/0.8.0...HEAD
+[Unreleased]: https://github.com/dreamfactorysoftware/df-database/compare/0.9.0...HEAD
+[0.9.0]: https://github.com/dreamfactorysoftware/df-database/compare/0.8.0...0.9.0
 [0.8.0]: https://github.com/dreamfactorysoftware/df-database/compare/0.7.0...0.8.0
 [0.7.0]: https://github.com/dreamfactorysoftware/df-database/compare/0.6.1...0.7.0
 [0.6.1]: https://github.com/dreamfactorysoftware/df-database/compare/0.6.0...0.6.1
