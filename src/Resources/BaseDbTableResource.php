@@ -4057,6 +4057,7 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                 $tableSchema = $this->parent->getTableSchema($tableSchema->getName());
             }
             $name = $tableSchema->getName(true);
+            $name = str_replace([' ', '-', '.'], '_', $name);
             $tName = $service . '_table_' . $name;
             $types[$tName] = new BaseType([
                 'name'        => $tName,
