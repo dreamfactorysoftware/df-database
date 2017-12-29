@@ -2,20 +2,21 @@
 
 namespace DreamFactory\Core\Database\Resources;
 
-use Config;
 use DreamFactory\Core\Components\DataValidator;
 use DreamFactory\Core\Components\Service2ServiceRequest;
-use DreamFactory\Core\Contracts\ServiceInterface;
+use DreamFactory\Core\Database\Components\TableDescribeQuery;
 use DreamFactory\Core\Database\Components\TableDescriber;
+use DreamFactory\Core\Database\Components\TableMutation;
+use DreamFactory\Core\Database\Components\TableQuery;
+use DreamFactory\Core\Database\Components\TableRecordMutation;
+use DreamFactory\Core\Database\Components\TableRecordQuery;
 use DreamFactory\Core\Database\Enums\DbFunctionUses;
-use DreamFactory\Core\Database\Enums\FunctionTypes;
 use DreamFactory\Core\Database\Schema\RelationSchema;
 use DreamFactory\Core\Database\Schema\TableSchema;
 use DreamFactory\Core\Database\Schema\ColumnSchema;
 use DreamFactory\Core\Enums\ApiOptions;
 use DreamFactory\Core\Enums\DbComparisonOperators;
 use DreamFactory\Core\Enums\DbLogicalOperators;
-use DreamFactory\Core\Enums\DbResourceTypes;
 use DreamFactory\Core\Enums\DbSimpleTypes;
 use DreamFactory\Core\Enums\Verbs;
 use DreamFactory\Core\Enums\VerbsMask;
@@ -26,11 +27,16 @@ use DreamFactory\Core\Exceptions\NotFoundException;
 use DreamFactory\Core\Exceptions\NotImplementedException;
 use DreamFactory\Core\Exceptions\InternalServerErrorException;
 use DreamFactory\Core\Exceptions\RestException;
+use DreamFactory\Core\GraphQL\Contracts\GraphQLHandlerInterface;
+use DreamFactory\Core\GraphQL\Query\ServiceMultiResourceQuery;
+use DreamFactory\Core\GraphQL\Query\ServiceResourceListQuery;
+use DreamFactory\Core\GraphQL\Type\BaseType;
 use DreamFactory\Core\Utility\ResourcesWrapper;
 use DreamFactory\Core\Utility\Session;
+use GraphQL\Type\Definition\Type;
 use ServiceManager;
 
-abstract class BaseDbTableResource extends BaseDbResource
+abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHandlerInterface
 {
     use DataValidator, TableDescriber;
 
@@ -105,7 +111,7 @@ abstract class BaseDbTableResource extends BaseDbResource
      */
     public function listResources($schema = null, $refresh = false)
     {
-        $result = $this->getTableNames($schema, $refresh);
+        $result = $this->parent->getTableNames($schema, $refresh);
         $resources = [];
         foreach ($result as $table) {
             $name = $table->getName(true);
@@ -138,18 +144,21 @@ abstract class BaseDbTableResource extends BaseDbResource
     /**
      * {@inheritdoc}
      */
-    public function getResources($only_handlers = false)
+    public function getResources()
     {
-        if ($only_handlers) {
-            return [];
-        }
-
         $refresh = $this->request->getParameterAsBool(ApiOptions::REFRESH);
         $schema = $this->request->getParameter(ApiOptions::SCHEMA, '');
-        $result = $this->getTableNames($schema, $refresh);
+        $ids = static::validateAsArray($this->request->getParameter(ApiOptions::IDS), ',');
+        $result = $this->parent->getTableNames($schema, $refresh);
         $resources = [];
         foreach ($result as $table) {
-            $access = $this->getPermissions($table->getName(true));
+            $name = $table->getName(true);
+            if ((false !== $ids) && !empty($ids)) {
+                if (false === array_search($name, $ids)) {
+                    continue;
+                }
+            }
+            $access = $this->getPermissions($name);
             if (!empty($access)) {
                 $info = $table->toArray(true);
                 $info['access'] = VerbsMask::maskToArray($access);
@@ -161,66 +170,11 @@ abstract class BaseDbTableResource extends BaseDbResource
     }
 
     /**
-     * @param string $schema
-     * @param bool   $refresh
-     * @return TableSchema[]
-     */
-    protected function getTableNames($schema = null, $refresh = false)
-    {
-        if ($refresh || (is_null($tables = $this->parent->getFromCache('tables')))) {
-            $tables = [];
-            $defaultSchema = $this->parent->getNamingSchema();
-            foreach ($this->parent->getSchemas($refresh) as $schemaName) {
-                $addSchema = (!empty($schemaName) && ($defaultSchema !== $schemaName));
-
-                $result = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_TABLE, $schemaName);
-
-                // Until views are separated as separate resource
-                if ($this->parent->getSchema()->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
-                    $views = $this->parent->getSchema()->getResourceNames(DbResourceTypes::TYPE_VIEW, $schemaName);
-                    $result = array_merge($result, $views);
-                }
-
-                foreach ($result as &$table) {
-                    if ($addSchema) {
-                        $table->name = ($addSchema) ? $table->internalName : $table->resourceName;
-                    }
-                    $tables[strtolower($table->name)] = $table;
-                }
-            }
-            ksort($tables, SORT_NATURAL); // sort alphabetically
-            // merge db extras
-            if (!empty($extrasEntries = $this->getSchemaExtrasForTables(array_keys($tables)))) {
-                foreach ($extrasEntries as $extras) {
-                    if (!empty($extraName = strtolower(strval($extras['table'])))) {
-                        if (array_key_exists($extraName, $tables)) {
-                            $tables[$extraName]->fill(array_except($extras, 'id'));
-                        }
-                    }
-                }
-            }
-            $this->parent->addToCache('tables', $tables, true);
-        }
-        if (!empty($schema)) {
-            $out = [];
-            foreach ($tables as $table => $info) {
-                if (starts_with($table, $schema . '.')) {
-                    $out[$table] = $info;
-                }
-            }
-
-            $tables = $out;
-        }
-
-        return $tables;
-    }
-
-    /**
      * @param string $name       The name of the table to check
      * @param bool   $returnName If true, the table name is returned instead of TRUE
      *
-     * @throws \InvalidArgumentException
      * @return bool
+     * @throws \Exception
      */
     public function doesTableExist($name, $returnName = false)
     {
@@ -228,7 +182,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             throw new \InvalidArgumentException('Table name cannot be empty.');
         }
 
-        $result = $this->getTableNames();
+        $result = $this->parent->getTableNames();
         // re-key by alias
         $tables = [];
         foreach ($result as $table) {
@@ -344,7 +298,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                                 ApiOptions::FIELDS_ALL),
                             ApiOptions::LIMIT  => $this->request->getParameter(
                                 str_replace('.', '_', $relative . '.' . ApiOptions::LIMIT),
-                                static::getMaxRecordsReturnedLimit()),
+                                $this->getMaxRecordsReturnedLimit()),
                             ApiOptions::ORDER  => $this->request->getParameter(
                                 str_replace('.', '_', $relative . '.' . ApiOptions::ORDER)),
                             ApiOptions::GROUP  => $this->request->getParameter(
@@ -364,6 +318,7 @@ abstract class BaseDbTableResource extends BaseDbResource
      * @param string $action
      *
      * @throws BadRequestException
+     * @throws ForbiddenException
      */
     protected function validateTableAccess($table, $action = null)
     {
@@ -454,11 +409,11 @@ abstract class BaseDbTableResource extends BaseDbResource
 
     /**
      * @return array|int
-     * @throws \DreamFactory\Core\Exceptions\InternalServerErrorException
      * @throws \DreamFactory\Core\Exceptions\NotFoundException
      * @throws \DreamFactory\Core\Exceptions\RestException
+     * @throws \Exception
      */
-    protected function handleGet()
+    protected function handleGET()
     {
         if (empty($this->resource)) {
             return parent::handleGET();
@@ -574,12 +529,11 @@ abstract class BaseDbTableResource extends BaseDbResource
 
     /**
      * @return bool|array
-     * @throws \DreamFactory\Core\Exceptions\BadRequestException
-     * @throws \DreamFactory\Core\Exceptions\InternalServerErrorException
-     * @throws \DreamFactory\Core\Exceptions\NotFoundException
-     * @throws \DreamFactory\Core\Exceptions\RestException
+     * @throws BadRequestException
+     * @throws NotFoundException
+     * @throws \Exception
      */
-    protected function handlePost()
+    protected function handlePOST()
     {
         if (empty($this->resource)) {
             // not currently supported, maybe batch opportunity?
@@ -618,10 +572,11 @@ abstract class BaseDbTableResource extends BaseDbResource
 
     /**
      * @return bool|array
-     * @throws \DreamFactory\Core\Exceptions\BadRequestException
-     * @throws \DreamFactory\Core\Exceptions\InternalServerErrorException
-     * @throws \DreamFactory\Core\Exceptions\NotFoundException
-     * @throws \DreamFactory\Core\Exceptions\RestException
+     * @throws BadRequestException
+     * @throws InternalServerErrorException
+     * @throws NotFoundException
+     * @throws RestException
+     * @throws \Exception
      */
     protected function handlePUT()
     {
@@ -682,12 +637,11 @@ abstract class BaseDbTableResource extends BaseDbResource
 
     /**
      * @return bool|array
-     * @throws \DreamFactory\Core\Exceptions\BadRequestException
-     * @throws \DreamFactory\Core\Exceptions\InternalServerErrorException
-     * @throws \DreamFactory\Core\Exceptions\NotFoundException
-     * @throws \DreamFactory\Core\Exceptions\RestException
+     * @throws BadRequestException
+     * @throws NotFoundException
+     * @throws \Exception
      */
-    protected function handlePatch()
+    protected function handlePATCH()
     {
         if (empty($this->resource)) {
             // not currently supported, maybe batch opportunity?
@@ -746,12 +700,11 @@ abstract class BaseDbTableResource extends BaseDbResource
 
     /**
      * @return bool|array
-     * @throws \DreamFactory\Core\Exceptions\BadRequestException
-     * @throws \DreamFactory\Core\Exceptions\InternalServerErrorException
-     * @throws \DreamFactory\Core\Exceptions\NotFoundException
-     * @throws \DreamFactory\Core\Exceptions\RestException
+     * @throws BadRequestException
+     * @throws NotFoundException
+     * @throws \Exception
      */
-    protected function handleDelete()
+    protected function handleDELETE()
     {
         if (empty($this->resource)) {
             // not currently supported, maybe batch opportunity?
@@ -1892,7 +1845,7 @@ abstract class BaseDbTableResource extends BaseDbResource
     protected function retrieveRelatedRecords(TableSchema $schema, $relations, $requests, &$data, $refresh = false)
     {
         $relatedExtras = [
-            ApiOptions::LIMIT   => static::getMaxRecordsReturnedLimit(),
+            ApiOptions::LIMIT   => $this->getMaxRecordsReturnedLimit(),
             ApiOptions::FIELDS  => ApiOptions::FIELDS_ALL,
             ApiOptions::REFRESH => $refresh
         ];
@@ -1916,9 +1869,9 @@ abstract class BaseDbTableResource extends BaseDbResource
      * @param null   $params
      *
      * @return mixed|null
-     * @throws \DreamFactory\Core\Exceptions\ForbiddenException
-     * @throws \DreamFactory\Core\Exceptions\InternalServerErrorException
-     * @throws \DreamFactory\Core\Exceptions\RestException
+     * @throws InternalServerErrorException
+     * @throws RestException
+     * @throws \Exception
      */
     protected function retrieveVirtualRecords($serviceName, $resource, $params = null)
     {
@@ -1926,14 +1879,11 @@ abstract class BaseDbTableResource extends BaseDbResource
             return null;
         }
 
-        $result = null;
         $params = (is_array($params) ? $params : []);
-
         $request = new Service2ServiceRequest(Verbs::GET, $params);
 
         //  Now set the request object and go...
-        $service = ServiceManager::getService($serviceName);
-        $response = $service->handleRequest($request, $resource);
+        $response = ServiceManager::handleServiceRequest($request, $serviceName, $resource);
         $content = $response->getContent();
         $status = $response->getStatusCode();
 
@@ -1970,10 +1920,10 @@ abstract class BaseDbTableResource extends BaseDbResource
      * @param null|array $params
      *
      * @return mixed|null
-     * @throws \DreamFactory\Core\Exceptions\ForbiddenException
-     * @throws \DreamFactory\Core\Exceptions\InternalServerErrorException
-     * @throws \DreamFactory\Core\Exceptions\RestException
-     * @internal param $path
+     * @throws InternalServerErrorException
+     * @throws NotImplementedException
+     * @throws RestException
+     * @throws \Exception
      */
     protected function handleVirtualRecords($serviceName, $resource, $verb, $records = null, $params = null)
     {
@@ -1991,9 +1941,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         }
 
         //  Now set the request object and go...
-        /** @var ServiceInterface $service */
-        $service = ServiceManager::getService($serviceName);
-        $response = $service->handleRequest($request, $resource);
+        $response = ServiceManager::handleServiceRequest($request, $serviceName, $resource);
         $content = $response->getContent();
         $status = $response->getStatusCode();
 
@@ -2023,140 +1971,6 @@ abstract class BaseDbTableResource extends BaseDbResource
         }
     }
 
-    protected function getTableReferences($refresh = false)
-    {
-        $result = null;
-        $cacheKey = 'table_refs';
-        if ($refresh || (is_null($result = $this->parent->getFromCache($cacheKey)))) {
-            $schema = $this->parent->getSchema();
-            if ($schema->supportsResourceType(DbResourceTypes::TYPE_TABLE_RELATIONSHIP)) {
-                $result = $schema->getResourceNames(DbResourceTypes::TYPE_TABLE_RELATIONSHIP);
-                $this->parent->addToCache($cacheKey, $result, true);
-            }
-        }
-
-        return $result;
-    }
-
-    protected function buildTableRelations(TableSchema $table, $constraints)
-    {
-        $serviceId = $this->getServiceId();
-        $defaultSchema = $this->parent->getNamingSchema();
-        $constraints2 = $constraints;
-
-        foreach ($constraints as $key => $constraint) {
-            $constraint = array_change_key_case((array)$constraint, CASE_LOWER);
-            $ts = $constraint['table_schema'];
-            $tn = $constraint['table_name'];
-            $cn = $constraint['column_name'];
-            $rts = $constraint['referenced_table_schema'];
-            $rtn = $constraint['referenced_table_name'];
-            $rcn = $constraint['referenced_column_name'];
-            if ((0 == strcasecmp($tn, $table->resourceName)) && (0 == strcasecmp($ts, $table->schemaName))) {
-                $name = ($rts == $defaultSchema) ? $rtn : $rts . '.' . $rtn;
-                $column = $table->getColumn($cn);
-                $table->foreignKeys[strtolower($cn)] = [$name, $rcn];
-                if (isset($column)) {
-                    $column->isForeignKey = true;
-                    $column->refTable = $name;
-                    $column->refField = $rcn;
-                    if (DbSimpleTypes::TYPE_INTEGER === $column->type) {
-                        $column->type = DbSimpleTypes::TYPE_REF;
-                    }
-                    $table->addColumn($column);
-                }
-
-                // Add it to our foreign references as well
-                $relation =
-                    new RelationSchema([
-                        'type'           => RelationSchema::BELONGS_TO,
-                        'field'          => $cn,
-                        'ref_service_id' => $serviceId,
-                        'ref_table'      => $name,
-                        'ref_field'      => $rcn,
-                    ]);
-
-                $table->addRelation($relation);
-            } elseif ((0 == strcasecmp($rtn, $table->resourceName)) && (0 == strcasecmp($rts, $table->schemaName))) {
-                $name = ($ts == $defaultSchema) ? $tn : $ts . '.' . $tn;
-                $relation = new RelationSchema([
-                    'type'           => RelationSchema::HAS_MANY,
-                    'field'          => $rcn,
-                    'ref_service_id' => $this->getServiceId(),
-                    'ref_table'      => $name,
-                    'ref_field'      => $cn,
-                ]);
-                switch (strtolower((string)array_get($constraint, 'constraint_type'))) {
-                    case 'primary key':
-                    case 'unique':
-                    case 'p':
-                    case 'u':
-                        // if this is the only one like it on the table then it is a HAS_ONE
-                        $single = true;
-                        foreach ($constraints as $ctk => $ctc) {
-                            $ctc = array_change_key_case((array)$ctc, CASE_LOWER);
-                            if (($ts == array_get($ctc, 'table_schema')) && ($tn == array_get($ctc, 'table_name')) &&
-                                ($cn !== array_get($ctc, 'column_name')) && !empty(array_get($ctc, 'constraint_type'))) {
-                                $single = false;
-                            }
-                        }
-                        if ($single) {
-                            $relation->type = RelationSchema::HAS_ONE;
-                        }
-                        break;
-                    default:
-                        break;
-                }
-
-                if ($oldRelation = $table->getRelation($relation->name)) {
-                    if (RelationSchema::HAS_ONE !== $oldRelation->type) {
-                        $table->addRelation($relation); // overrides HAS_MANY
-                    }
-                } else {
-                    $table->addRelation($relation);
-                }
-
-                // if other has foreign keys to other tables, we can say these are related as well
-                foreach ($constraints2 as $key2 => $constraint2) {
-                    if (0 != strcasecmp($key, $key2)) // not same key
-                    {
-                        $constraint2 = array_change_key_case((array)$constraint2, CASE_LOWER);
-                        $ts2 = $constraint2['table_schema'];
-                        $tn2 = $constraint2['table_name'];
-                        $cn2 = $constraint2['column_name'];
-                        if ((0 == strcasecmp($ts2, $ts)) && (0 == strcasecmp($tn2, $tn))
-                        ) {
-                            $rts2 = $constraint2['referenced_table_schema'];
-                            $rtn2 = $constraint2['referenced_table_name'];
-                            $rcn2 = $constraint2['referenced_column_name'];
-                            if ((0 != strcasecmp($rts2, $table->schemaName)) ||
-                                (0 != strcasecmp($rtn2, $table->resourceName))
-                            ) {
-                                $name2 = ($rts2 == $table->schemaName) ? $rtn2 : $rts2 . '.' . $rtn2;
-                                // not same as parent, i.e. via reference back to self
-                                // not the same key
-                                $relation =
-                                    new RelationSchema([
-                                        'type'                => RelationSchema::MANY_MANY,
-                                        'field'               => $rcn,
-                                        'ref_service_id'      => $serviceId,
-                                        'ref_table'           => $name2,
-                                        'ref_field'           => $rcn2,
-                                        'junction_service_id' => $serviceId,
-                                        'junction_table'      => $name,
-                                        'junction_field'      => $cn,
-                                        'junction_ref_field'  => $cn2
-                                    ]);
-
-                                $table->addRelation($relation);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     protected function getTableSchema($service, $table)
     {
         if (!empty($service) && ($service !== $this->getServiceName())) {
@@ -2165,115 +1979,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                 return new TableSchema($result);
             }
         } else {
-            $cacheKey = 'table:' . strtolower($table);
-            if (is_null($result = $this->parent->getFromCache($cacheKey))) {
-                $schema = $this->parent->getSchema();
-                if ($tableSchema = array_get($this->getTableNames(), strtolower($table))) {
-                    /** @type TableSchema $result */
-                    if (!$result = $schema->getResource(DbResourceTypes::TYPE_TABLE, $tableSchema)) {
-                        if ($schema->supportsResourceType(DbResourceTypes::TYPE_VIEW)) {
-                            $result = $schema->getResource(DbResourceTypes::TYPE_VIEW, $tableSchema);
-                        }
-                    }
-                    if ($result) {
-                        $tableSchema = $result;
-
-                        // merge db relationships
-                        if (!empty($references = $this->getTableReferences())) {
-                            $this->buildTableRelations($tableSchema, $references);
-                        }
-
-                        // merge db extras
-                        if (!empty($extras = $this->getSchemaExtrasForFields($tableSchema->name))) {
-                            foreach ($extras as $extra) {
-                                if (!empty($columnName = array_get($extra, 'field'))) {
-                                    unset($extra['field']);
-                                    if (!empty($type = array_get($extra, 'extra_type'))) {
-                                        $extra['type'] = $type;
-                                        // upgrade old entries
-                                        if ('virtual' === $type) {
-                                            $extra['is_virtual'] = true;
-                                            if (!empty($functionInfo = array_get($extra, 'db_function'))) {
-                                                $type = $extra['type'] = array_get($functionInfo, 'type',
-                                                    DbSimpleTypes::TYPE_STRING);
-                                                if ($function = array_get($functionInfo, 'function')) {
-                                                    $extra['db_function'] = [
-                                                        [
-                                                            'use'           => [DbFunctionUses::SELECT],
-                                                            'function'      => $function,
-                                                            'function_type' => FunctionTypes::DATABASE,
-                                                        ]
-                                                    ];
-                                                }
-                                                if ($aggregate = array_get($functionInfo, 'aggregate')) {
-                                                    $extra['is_aggregate'] = $aggregate;
-                                                }
-                                            }
-                                        }
-                                    }
-                                    unset($extra['extra_type']);
-
-                                    if (!empty($alias = array_get($extra, 'alias'))) {
-                                        $extra['quotedAlias'] = $schema->quoteColumnName($alias);
-                                    }
-
-                                    if (null !== $c = $result->getColumn($columnName)) {
-                                        $c->fill($extra);
-                                    } elseif (!empty($type) && (array_get($extra, 'is_virtual') ||
-                                            !$schema->supportsResourceType(DbResourceTypes::TYPE_TABLE_FIELD))) {
-                                        $extra['name'] = $columnName;
-                                        $c = new ColumnSchema($extra);
-                                        $c->quotedName = $schema->quoteColumnName($c->name);
-                                        $tableSchema->addColumn($c);
-                                    }
-                                }
-                            }
-                        }
-                        if (!empty($extras = $this->getSchemaVirtualRelationships($tableSchema->name))) {
-                            foreach ($extras as $extra) {
-                                $refService = null;
-                                $junctionService = null;
-                                $si = array_get($extra, 'ref_service_id');
-                                if ($this->getServiceId() !== $si) {
-                                    $refService = ServiceManager::getServiceNameById($si);
-                                }
-                                $si = array_get($extra, 'junction_service_id');
-                                if (!empty($si) && ($this->getServiceId() !== $si)) {
-                                    $junctionService = ServiceManager::getServiceNameById($si);
-                                }
-                                $extra['name'] = RelationSchema::buildName(
-                                    array_get($extra, 'type'),
-                                    array_get($extra, 'field'),
-                                    $refService,
-                                    array_get($extra, 'ref_table'),
-                                    array_get($extra, 'ref_field'),
-                                    $junctionService,
-                                    array_get($extra, 'junction_table')
-                                );
-                                $relation = new RelationSchema($extra);
-                                $relation->isVirtual = true;
-                                $tableSchema->addRelation($relation);
-                            }
-                        }
-                        if (!empty($extras = $this->getSchemaExtrasForRelated($tableSchema->name))) {
-                            foreach ($extras as $extra) {
-                                if (!empty($relatedName = array_get($extra, 'relationship'))) {
-                                    if (null !== $relationship = $tableSchema->getRelation($relatedName)) {
-                                        $relationship->fill($extra);
-                                        if (isset($extra['always_fetch']) && $extra['always_fetch']) {
-                                            $tableSchema->fetchRequiresRelations = true;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        $tableSchema->discoveryCompleted = true;
-                        $this->parent->addToCache($cacheKey, $tableSchema, true);
-                    }
-                }
-            }
-
-            return $result;
+            return $this->parent->getTableSchema($table);
         }
 
         return null;
@@ -2284,8 +1990,6 @@ abstract class BaseDbTableResource extends BaseDbResource
      * @param string $table
      * @param array  $fields
      *
-     * @throws \DreamFactory\Core\Exceptions\InternalServerErrorException
-     * @throws \DreamFactory\Core\Exceptions\RestException
      */
     protected function replaceWithAliases($service, &$table, array &$fields)
     {
@@ -2306,11 +2010,9 @@ abstract class BaseDbTableResource extends BaseDbResource
      * @param array          $extras
      *
      * @return void
-     * @throws \DreamFactory\Core\Exceptions\BadRequestException
-     * @throws \DreamFactory\Core\Exceptions\InternalServerErrorException
-     * @throws \DreamFactory\Core\Exceptions\NotFoundException
-     * @throws \DreamFactory\Core\Exceptions\RestException
-     * @throws \Exception
+     * @throws ForbiddenException
+     * @throws InternalServerErrorException
+     * @throws RestException
      */
     protected function retrieveRelationRecords(TableSchema $schema, RelationSchema $relation, &$data, $extras)
     {
@@ -2352,9 +2054,6 @@ abstract class BaseDbTableResource extends BaseDbResource
                     throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '{$relation->refField} not found.");
                 }
 
-                // check for access
-                Session::checkServicePermission(Verbs::GET, $refService, '_table/' . $refTable);
-
                 // Get records
                 $refFieldName = $refField->getName(true);
                 $extras[ApiOptions::FILTER] = "($refFieldName IN (" . implode(',', $values) . '))';
@@ -2393,9 +2092,6 @@ abstract class BaseDbTableResource extends BaseDbResource
                     throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '{$relation->refField} not found.");
                 }
 
-                // check for access
-                Session::checkServicePermission(Verbs::GET, $refService, '_table/' . $refTable);
-
                 // Get records
                 $refFieldName = $refField->getName(true);
                 $extras[ApiOptions::FILTER] = "($refFieldName IN (" . implode(',', $values) . '))';
@@ -2433,9 +2129,6 @@ abstract class BaseDbTableResource extends BaseDbResource
                 if (empty($refField = $refSchema->getColumn($relation->refField))) {
                     throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '{$relation->refField} not found.");
                 }
-
-                // check for access
-                Session::checkServicePermission(Verbs::GET, $refService, '_table/' . $refTable);
 
                 // Get records
                 $refFieldName = $refField->getName(true);
@@ -2479,9 +2172,6 @@ abstract class BaseDbTableResource extends BaseDbResource
                     throw new InternalServerErrorException('Many to many relationship not configured properly.');
                 }
 
-                // check for access
-                Session::checkServicePermission(Verbs::GET, $junctionService, '_table/' . $junctionTable);
-
                 // Get records
                 $junctionFieldName = $junctionField->getName(true);
                 $junctionRefFieldName = $junctionRefField->getName(true);
@@ -2510,9 +2200,6 @@ abstract class BaseDbTableResource extends BaseDbResource
                             throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '{$relation->refField} not found.");
                         }
                         $refFieldName = $refField->getName(true);
-
-                        // check for access
-                        Session::checkServicePermission(Verbs::GET, $refService, '_table/' . $refTable);
 
                         // Get records
                         $filter = $refFieldName . ' IN (' . implode(',', $relatedIds) . ')';
@@ -2575,17 +2262,13 @@ abstract class BaseDbTableResource extends BaseDbResource
                 throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '{$relation->refField} not found.");
             }
 
-            if (is_array($refSchema->primaryKey)) {
-                if (1 < count($refSchema->primaryKey)) {
-                    // todo How to handle multiple primary keys?
-                    throw new NotImplementedException("Relating records with multiple field primary keys is not currently supported.");
-                } else {
-                    $pkField = $refSchema->primaryKey[0];
-                }
+            $pkFields = $refSchema->getPrimaryKeyColumns();
+            if (1 < count($pkFields)) {
+                // todo How to handle multiple primary keys?
+                throw new NotImplementedException("Relating records with multiple field primary keys is not currently supported.");
             } else {
-                $pkField = $refSchema->primaryKey;
+                $pkField = current($pkFields);
             }
-            $pkField = $refSchema->getColumn($pkField);
 
             $pkAutoSet = $pkField->autoIncrement;
             $pkFieldAlias = $pkField->getName(true);
@@ -2603,9 +2286,6 @@ abstract class BaseDbTableResource extends BaseDbResource
                 $insertMany[] = $parent;
             } else {
                 // update or insert a parent
-                // check for access
-                Session::checkServicePermission(Verbs::GET, $refService, '_table/' . $refTable);
-
                 // Get records
                 $filterVal = ('string' === gettype($id)) ? "'$id'" : $id;
                 $temp = [ApiOptions::FILTER => "$pkFieldAlias = $filterVal"];
@@ -2668,17 +2348,13 @@ abstract class BaseDbTableResource extends BaseDbResource
                 throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '{$relation->refField} not found.");
             }
 
-            if (is_array($refSchema->primaryKey)) {
-                if (1 < count($refSchema->primaryKey)) {
-                    // todo How to handle multiple primary keys?
-                    throw new NotImplementedException("Relating records with multiple field primary keys is not currently supported.");
-                } else {
-                    $pkField = $refSchema->primaryKey[0];
-                }
+            $pkFields = $refSchema->getPrimaryKeyColumns();
+            if (1 < count($pkFields)) {
+                // todo How to handle multiple primary keys?
+                throw new NotImplementedException("Relating records with multiple field primary keys is not currently supported.");
             } else {
-                $pkField = $refSchema->primaryKey;
+                $pkField = current($pkFields);
             }
-            $pkField = $refSchema->getColumn($pkField);
 
             $pkAutoSet = $pkField->autoIncrement;
             $pkFieldAlias = $pkField->getName(true);
@@ -2686,9 +2362,6 @@ abstract class BaseDbTableResource extends BaseDbResource
             $deleteRelated = (!$refField->allowNull && $allow_delete);
 
             if (empty($child_record)) {
-                // check for access
-                Session::checkServicePermission(Verbs::GET, $refService, '_table/' . $refTable);
-
                 // Get record
                 $temp = [
                     ApiOptions::FILTER => $refFieldAlias . ' = ' . $parent_id,
@@ -2743,9 +2416,6 @@ abstract class BaseDbTableResource extends BaseDbResource
                         if ($pkAutoSet) {
                             $this->updateForeignRecords($refService, $refSchema, $pkField, [$child_record]);
                         } else {
-                            // check for access
-                            Session::checkServicePermission(Verbs::GET, $refService, '_table/' . $refTable);
-
                             $temp = [ApiOptions::FILTER => $pkFieldAlias . ' = ' . $id];
                             $matchIds = $this->retrieveVirtualRecords($refService, '_table/' . $refTable, $temp);
                             if ($found = static::findRecordByNameValue($matchIds, $pkFieldAlias, $id)) {
@@ -2798,17 +2468,13 @@ abstract class BaseDbTableResource extends BaseDbResource
                 throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '{$relation->refField} not found.");
             }
 
-            if (is_array($refSchema->primaryKey)) {
-                if (1 < count($refSchema->primaryKey)) {
-                    // todo How to handle multiple primary keys?
-                    throw new NotImplementedException("Relating records with multiple field primary keys is not currently supported.");
-                } else {
-                    $pkField = $refSchema->primaryKey[0];
-                }
+            $pkFields = $refSchema->getPrimaryKeyColumns();
+            if (1 < count($pkFields)) {
+                // todo How to handle multiple primary keys?
+                throw new NotImplementedException("Relating records with multiple field primary keys is not currently supported.");
             } else {
-                $pkField = $refSchema->primaryKey;
+                $pkField = current($pkFields);
             }
-            $pkField = $refSchema->getColumn($pkField);
 
             $pkAutoSet = $pkField->autoIncrement;
             $pkFieldAlias = $pkField->getName(true);
@@ -2865,9 +2531,6 @@ abstract class BaseDbTableResource extends BaseDbResource
 
             // resolve any upsert situations
             if (!empty($upsertMany)) {
-                // check for access
-                Session::checkServicePermission(Verbs::GET, $refService, '_table/' . $refTable);
-
                 // Get records
                 $checkIds = array_keys($upsertMany);
                 if (count($checkIds) > 1) {
@@ -2920,8 +2583,6 @@ abstract class BaseDbTableResource extends BaseDbResource
 
     protected function createForeignRecords($service, TableSchema $schema, $records)
     {
-        // do we have permission to do so?
-        Session::checkServicePermission(Verbs::POST, $service, '_table/' . $schema->getName(true));
 //        if (!empty($service) && ($service !== $this->getServiceName())) {
         $newIds = $this->handleVirtualRecords($service, '_table/' . $schema->getName(true), Verbs::POST, $records);
 //        } else {
@@ -2949,8 +2610,6 @@ abstract class BaseDbTableResource extends BaseDbResource
         ColumnSchema $linkerField,
         $records
     ) {
-        // do we have permission to do so?
-        Session::checkServicePermission(Verbs::PUT, $service, '_table/' . $schema->getName(true));
 //        if (!empty($service) && ($service !== $this->getServiceName())) {
         $this->handleVirtualRecords($service, '_table/' . $schema->getName(true), Verbs::PATCH, $records);
 //        } else {
@@ -2989,8 +2648,6 @@ abstract class BaseDbTableResource extends BaseDbResource
         $linkerIds,
         $record
     ) {
-        // do we have permission to do so?
-        Session::checkServicePermission(Verbs::PUT, $service, '_table/' . $schema->getName(true));
 //        if (!empty($service) && ($service !== $this->getServiceName())) {
         $temp = [ApiOptions::IDS => $linkerIds, ApiOptions::ID_FIELD => $linkerField->getName(true)];
         $this->handleVirtualRecords($service, '_table/' . $schema->getName(true), Verbs::PATCH, $record, $temp);
@@ -3025,8 +2682,6 @@ abstract class BaseDbTableResource extends BaseDbResource
         $linkerIds,
         $addCondition = null
     ) {
-        // do we have permission to do so?
-        Session::checkServicePermission(Verbs::DELETE, $service, '_table/' . $schema->getName(true));
 //        if (!empty($service) && ($service !== $this->getServiceName())) {
         if (!empty($addCondition) && is_array($addCondition)) {
             $filter = '(' . $linkerField->getName(true) . ' IN (' . implode(',', $$linkerIds) . '))';
@@ -3088,18 +2743,15 @@ abstract class BaseDbTableResource extends BaseDbResource
         }
 
         try {
-            if (is_array($one_table->primaryKey)) {
-                if (1 !== count($one_table->primaryKey)) {
-                    // todo How to handle multiple primary keys?
-                    throw new NotImplementedException("Relating records with multiple field primary keys is not currently supported.");
-                } else {
-                    $onePkFieldName = $one_table->primaryKey[0];
-                }
+            $onePkFields = $one_table->getPrimaryKeyColumns();
+            if (1 < count($onePkFields)) {
+                // todo How to handle multiple primary keys?
+                throw new NotImplementedException("Relating records with multiple field primary keys is not currently supported.");
             } else {
-                $onePkFieldName = $one_table->primaryKey;
+                $onePkField = current($onePkFields);
             }
-            if (empty($onePkField = $one_table->getColumn($onePkFieldName))) {
-                throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '$onePkFieldName' not found.");
+            if (empty($onePkField)) {
+                throw new InternalServerErrorException("Incorrect relationship configuration detected. No primary key detected.");
             }
 
             $refService = ($this->getServiceId() !== $relation->refServiceId) ?
@@ -3110,18 +2762,16 @@ abstract class BaseDbTableResource extends BaseDbResource
             if (empty($refField = $refSchema->getColumn($relation->refField))) {
                 throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '{$relation->refField} not found.");
             }
-            if (is_array($refSchema->primaryKey)) {
-                if (1 !== count($refSchema->primaryKey)) {
-                    // todo How to handle multiple primary keys?
-                    throw new NotImplementedException("Relating records with multiple field primary keys is not currently supported.");
-                } else {
-                    $refPkFieldName = $refSchema->primaryKey[0];
-                }
+
+            $refPkFields = $refSchema->getPrimaryKeyColumns();
+            if (1 < count($refPkFields)) {
+                // todo How to handle multiple primary keys?
+                throw new NotImplementedException("Relating records with multiple field primary keys is not currently supported.");
             } else {
-                $refPkFieldName = $refSchema->primaryKey;
+                $refPkField = current($refPkFields);
             }
-            if (empty($refPkField = $refSchema->getColumn($refPkFieldName))) {
-                throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '$refPkFieldName' not found.");
+            if (empty($refPkField)) {
+                throw new InternalServerErrorException("Incorrect relationship configuration detected. No primary key detected.");
             }
 
             $junctionService = ($this->getServiceId() !== $relation->junctionServiceId) ?
@@ -3135,9 +2785,6 @@ abstract class BaseDbTableResource extends BaseDbResource
             if (empty($junctionRefField = $junctionSchema->getColumn($relation->junctionRefField))) {
                 throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '{$relation->junctionRefField} not found.");
             }
-
-            // check for access
-            Session::checkServicePermission(Verbs::GET, $junctionService, '_table/' . $junctionTable);
 
             // Get records
             $filter = "({$junctionField->getName(true)} = $one_id) AND ({$junctionRefField->getName(true)} IS NOT NULL)";
@@ -3195,9 +2842,6 @@ abstract class BaseDbTableResource extends BaseDbResource
 
             // resolve any upsert situations
             if (!empty($upsertMany)) {
-                // check for access
-                Session::checkServicePermission(Verbs::GET, $refService, '_table/' . $refTable);
-
                 // Get records
                 $checkIds = array_keys($upsertMany);
                 if (count($checkIds) > 1) {
@@ -3917,12 +3561,12 @@ abstract class BaseDbTableResource extends BaseDbResource
     /**
      * @return int
      */
-    protected static function getMaxRecordsReturnedLimit()
+    protected function getMaxRecordsReturnedLimit()
     {
         // some classes define their own default
         $default = defined('static::MAX_RECORDS_RETURNED') ? static::MAX_RECORDS_RETURNED : 1000;
 
-        return intval(Config::get('database.max_records_returned', $default));
+        return $this->getService()->getMaxRecordsLimit($default);
     }
 
     protected static function findRecordByNameValue($data, $field, $value)
@@ -4148,6 +3792,7 @@ abstract class BaseDbTableResource extends BaseDbResource
      * @param string $id_field
      *
      * @return bool
+     * @throws BadRequestException
      */
     protected static function requireMoreFields($fields, $id_field = null)
     {
@@ -4360,10 +4005,109 @@ abstract class BaseDbTableResource extends BaseDbResource
         return (substr($haystack, -strlen($needle)) === $needle);
     }
 
-    protected function getApiDocPaths()
+    /**
+     * @param bool $refresh
+     * @return array
+     * @throws \Exception
+     */
+    public function getGraphQLSchema($refresh = false)
     {
         $service = $this->getServiceName();
-        $capitalized = camelize($service);
+
+        $queries = [];
+        $tName = 'db_table';
+        $qName = $this->formOperationName(Verbs::GET);
+        $queries[$qName] = new TableDescribeQuery([
+            'name'     => $qName,
+            'type'     => $tName,
+            'service'  => $service,
+            'resource' => '_table',
+            'args'     => [
+                'name' => ['name' => 'name', 'type' => Type::STRING . '!'],
+            ],
+        ]);
+        $qName = $this->formOperationName(Verbs::GET, null, true);
+        $queries[$qName] = new ServiceMultiResourceQuery([
+            'name'     => $qName,
+            'type'     => $tName,
+            'service'  => $service,
+            'resource' => '_table',
+            'args'     => [
+                'ids'    => ['name' => 'ids', 'type' => '[' . Type::STRING . ']'],
+                'schema' => ['name' => 'schema', 'type' => Type::STRING],
+            ],
+        ]);
+        $qName = $qName . 'Names';
+        $queries[$qName] = new ServiceResourceListQuery([
+            'name'     => $qName,
+            'service'  => $service,
+            'resource' => '_table',
+            'args'     => [
+                'schema' => ['name' => 'schema', 'type' => Type::STRING],
+            ],
+        ]);
+        $mutations = [];
+        $types = [
+            $tName => new BaseType(TableSchema::getSchema())
+        ];
+
+        $result = $this->parent->getTableNames();
+        foreach ($result as $tableSchema) {
+            if (!$tableSchema->discoveryCompleted) {
+                $tableSchema = $this->parent->getTableSchema($tableSchema->getName());
+            }
+            $name = $tableSchema->getName(true);
+            $name = str_replace([' ', '-', '.'], '_', $name);
+            $tName = $service . '_table_' . $name;
+            $types[$tName] = new BaseType([
+                'name'        => $tName,
+                'description' => $tableSchema->description,
+                'schema'      => $tableSchema
+            ]);
+            $tiName = $service . '_table_' . $name . '_input';
+            $types[$tiName] = new BaseType([
+                'name'        => $tiName,
+                'description' => $tableSchema->description,
+                'schema'      => $tableSchema,
+                'for_input'   => true,
+            ]);
+
+            $qName = $this->formOperationName(Verbs::GET, $name, true);
+            $queries[$qName] = new TableQuery([
+                'service' => $service,
+                'name'    => $qName,
+                'schema'  => $tableSchema,
+            ]);
+            $qName = $this->formOperationName(Verbs::GET, $name);
+            $queries[$qName] = new TableRecordQuery([
+                'service' => $service,
+                'name'    => $qName,
+                'schema'  => $tableSchema,
+            ]);
+
+            foreach ([Verbs::POST, Verbs::PUT, Verbs::PATCH, Verbs::DELETE] as $verb) {
+                $qName = $this->formOperationName($verb, $name, true);
+                $mutations[$qName] = new TableMutation([
+                    'service' => $service,
+                    'name'    => $qName,
+                    'schema'  => $tableSchema,
+                    'verb'    => $verb,
+                ]);
+                $qName = $this->formOperationName($verb, $name);
+                $mutations[$qName] = new TableRecordMutation([
+                    'service' => $service,
+                    'name'    => $qName,
+                    'schema'  => $tableSchema,
+                    'verb'    => $verb,
+                ]);
+            }
+        }
+
+        return ['query' => $queries, 'mutation' => $mutations, 'types' => $types];
+    }
+
+    protected function getApiDocPaths()
+    {
         $resourceName = strtolower($this->name);
         $class = trim(strrchr(static::class, '\\'), '\\');
         $pluralClass = str_plural($class);
@@ -4380,7 +4124,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                         'By default, all records up to the maximum are returned. ' .
                         'Use the \'fields\' parameters to limit properties returned for each record. ' .
                         'By default, all fields are returned for each record.',
-                    'operationId' => 'get' . $capitalized . $pluralClass,
+                    'operationId' => $this->formOperationName(Verbs::GET, null, true),
                     'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::FIELDS),
                         ApiOptions::documentOption(ApiOptions::IDS),
@@ -4415,7 +4159,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                         'Alternatively, to send the **ids** as posted data, use the getRecordsByPost() POST request. ' .
                         'Use the **fields** parameter to limit properties returned for each record. ' .
                         'By default, all fields are returned for all records. ',
-                    'operationId' => 'get' . $capitalized . 'Records',
+                    'operationId' => $this->formOperationName(Verbs::GET, 'Record', true),
                     'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::FIELDS),
                         ApiOptions::documentOption(ApiOptions::RELATED),
@@ -4443,7 +4187,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                     'description' => 'Posted data should be an array of records wrapped in a **record** element. ' .
                         'By default, only the id property of the record is returned on success. ' .
                         'Use **fields** parameter to return more info.',
-                    'operationId' => 'create' . $capitalized . 'Records',
+                    'operationId' => $this->formOperationName(Verbs::POST, 'Record', true),
                     'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::FIELDS),
                         ApiOptions::documentOption(ApiOptions::RELATED),
@@ -4478,7 +4222,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                         'Filter can be included via URL parameter or included in the posted body. ' .
                         'By default, only the id property of the record is returned on success. ' .
                         'Use **fields** parameter to return more info.',
-                    'operationId' => 'replace' . $capitalized . 'Records',
+                    'operationId' => $this->formOperationName(Verbs::PUT, 'Record', true),
                     'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::FIELDS),
                         ApiOptions::documentOption(ApiOptions::RELATED),
@@ -4504,7 +4248,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                         'Filter can be included via URL parameter or included in the posted body. ' .
                         'By default, only the id property of the record is returned on success. ' .
                         'Use **fields** parameter to return more info.',
-                    'operationId' => 'update' . $capitalized . 'Records',
+                    'operationId' => $this->formOperationName(Verbs::PATCH, 'Record', true),
                     'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::FIELDS),
                         ApiOptions::documentOption(ApiOptions::RELATED),
@@ -4533,7 +4277,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                         'By default, only the id property of the record is returned on success, use **fields** to return more info. ' .
                         'Set the **body** to an array of records, minimally including the identifying fields, to delete specific records. ' .
                         'By default, only the id property of the record is returned on success, use **fields** to return more info. ',
-                    'operationId' => 'delete' . $capitalized . 'Records',
+                    'operationId' => $this->formOperationName(Verbs::DELETE, 'Record', true),
                     'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::FIELDS),
                         ApiOptions::documentOption(ApiOptions::RELATED),
@@ -4574,7 +4318,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                     'summary'     => 'Retrieve one record by identifier.',
                     'description' => 'Use the **fields** parameter to limit properties that are returned. ' .
                         'By default, all fields are returned.',
-                    'operationId' => 'get' . $capitalized . 'Record',
+                    'operationId' => $this->formOperationName(Verbs::GET, 'Record'),
                     'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::FIELDS),
                         ApiOptions::documentOption(ApiOptions::RELATED),
@@ -4589,7 +4333,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                     'summary'     => 'Replace the content of one record by identifier.',
                     'description' => 'Post data should be an array of fields for a single record. ' .
                         'Use the **fields** parameter to return more properties. By default, the id is returned.',
-                    'operationId' => 'replace' . $capitalized . 'Record',
+                    'operationId' => $this->formOperationName(Verbs::PUT, 'Record'),
                     'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::FIELDS),
                         ApiOptions::documentOption(ApiOptions::RELATED),
@@ -4607,7 +4351,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                     'summary'     => 'Update (patch) one record by identifier.',
                     'description' => 'Post data should be an array of fields for a single record. ' .
                         'Use the **fields** parameter to return more properties. By default, the id is returned.',
-                    'operationId' => 'update' . $capitalized . 'Record',
+                    'operationId' => $this->formOperationName(Verbs::PATCH, 'Record'),
                     'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::FIELDS),
                         ApiOptions::documentOption(ApiOptions::RELATED),
@@ -4624,7 +4368,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                 'delete'     => [
                     'summary'     => 'Delete one record by identifier.',
                     'description' => 'Use the **fields** parameter to return more deleted properties. By default, the id is returned.',
-                    'operationId' => 'delete' . $capitalized . 'Record',
+                    'operationId' => $this->formOperationName(Verbs::DELETE, 'Record'),
                     'parameters'  => [
                         ApiOptions::documentOption(ApiOptions::FIELDS),
                         ApiOptions::documentOption(ApiOptions::RELATED),

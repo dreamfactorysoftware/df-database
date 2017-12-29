@@ -1,7 +1,10 @@
 <?php
+
 namespace DreamFactory\Core\Database\Models;
 
+use DreamFactory\Core\Database\Resources\BaseDbTableResource;
 use DreamFactory\Core\Models\BaseServiceConfigNoDbModel;
+use DreamFactory\Core\Exceptions\BadRequestException;
 
 /**
  * BaseSqlDbConfig
@@ -24,6 +27,14 @@ class BaseDbConfig extends BaseServiceConfigNoDbModel
                 'allow_null'  => false,
                 'default'     => false,
                 'description' => 'Allow PUT to create records if they do not exist and the service is capable.',
+            ],
+            'max_records'  => [
+                'name'        => 'max_records',
+                'label'       => 'Maximum Records',
+                'type'        => 'integer',
+                'allow_null'  => false,
+                'default'     => 1000,
+                'description' => 'Maximum number of records returned by this service. Must be a number greater than 0. Default is 1000.',
             ]
         ];
     }
@@ -38,6 +49,7 @@ class BaseDbConfig extends BaseServiceConfigNoDbModel
             $allowUpsert = filter_var($allowUpsert, FILTER_VALIDATE_BOOLEAN);
         }
         $config['allow_upsert'] = $allowUpsert;
+        $config['max_records'] = filter_var(array_get($config, 'max_records'), FILTER_VALIDATE_INT);
 
         return parent::fromStorageFormat($config, $protect);
     }
@@ -52,6 +64,14 @@ class BaseDbConfig extends BaseServiceConfigNoDbModel
             if (!is_bool($allowUpsert)) {
                 $config['allow_upsert'] = filter_var($allowUpsert, FILTER_VALIDATE_BOOLEAN);
             }
+        }
+        if (isset($config['max_records'])) {
+            if (!is_int($config['max_records'])) {
+                $config['max_records'] = filter_var($config['max_records'], FILTER_VALIDATE_INT);
+            }
+        }
+        if (array_get($config, 'max_records', 0) <= 0 || empty($config['max_records'])) {
+            unset($config['max_records']);
         }
 
         return parent::toStorageFormat($config, $old_config);
