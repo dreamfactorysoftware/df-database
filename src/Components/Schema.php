@@ -1869,7 +1869,7 @@ MYSQL;
                 switch (static::extractPhpType($type)) {
                     case 'boolean':
                         return \PDO::PARAM_BOOL;
-                    case 'int':
+                    case 'integer':
                         return \PDO::PARAM_INT;
                     case 'string':
                         return \PDO::PARAM_STR;

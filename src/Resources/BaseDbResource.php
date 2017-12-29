@@ -127,18 +127,19 @@ abstract class BaseDbResource extends BaseRestResource
                 $verb = strtolower($verb);
                 break;
         }
-        $service = $this->getServiceName();
-        $class = $this->label;
-        if ($separator) {
-            $class = str_replace(['_',' '], $separator, $class);
-            if ($resource) {
-                return strtolower($verb . $separator . $service . $separator . $class . $separator . ($plural ? str_plural($resource) : $resource));
+        $service = str_replace([' ', '-', '.'], $separator, $this->getServiceName());
+        $class = str_replace([' ', '-', '.'], $separator, $this->label);
+        if ($resource) {
+            $resource = str_replace([' ', '-', '.'], $separator, $resource);
+            $resource = ($plural ? str_plural($resource) : $resource);
+            if ($separator) {
+                return strtolower($verb . $separator . $service . $separator . $class . $separator . $resource);
             } else {
-                return strtolower($verb . $separator . $service . $separator . ($plural ? str_plural($class) : $class));
+                return $verb . camelize($service . $separator . $class . $separator . ucwords($resource));
             }
         } else {
-            if ($resource) {
-                return $verb . camelize($service . $separator . $class . $separator . ucwords($plural ? str_plural($resource) : $resource));
+            if ($separator) {
+                return strtolower($verb . $separator . $service . $separator . ($plural ? str_plural($class) : $class));
             } else {
                 return $verb . camelize($service . ($plural ? str_plural($class) : $class));
             }

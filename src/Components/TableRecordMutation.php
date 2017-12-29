@@ -22,18 +22,20 @@ class TableRecordMutation extends TableRecordQuery
             case Verbs::PUT:
                 // need to allow setting all fields and relations
                 foreach ($this->tableSchema->getColumns() as $name => $info) {
-                    $type = BaseType::convertType($info->type);
-                    if ($info->getRequired()) {
-                        $type = Type::nonNull($type);
+                    if ($type = BaseType::convertType($info->type)) {
+                        if ($info->getRequired()) {
+                            $type = Type::nonNull($type);
+                        }
+                        $args[$name] = ['name' => $name, 'type' => $type];
                     }
-                    $args[$name] = ['name' => $name, 'type' => $type];
                 }
                 break;
             case Verbs::PATCH:
                 // need to allow setting all fields and relations
                 foreach ($this->tableSchema->getColumns() as $name => $info) {
-                    $type = BaseType::convertType($info->type);
-                    $args[$name] = ['name' => $name, 'type' => $type];
+                    if ($type = BaseType::convertType($info->type)) {
+                        $args[$name] = ['name' => $name, 'type' => $type];
+                    }
                 }
                 break;
             case Verbs::DELETE:

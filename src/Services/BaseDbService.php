@@ -168,12 +168,12 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
      */
     public function getGraphQLSchema($refresh = false)
     {
-        $cacheKey = 'graphql_schema';
-        if ($refresh) {
-            $this->removeFromCache($cacheKey);
-        }
+//        $cacheKey = 'graphql_schema';
+//        if ($refresh) {
+//            $this->removeFromCache($cacheKey);
+//        }
 
-        return $this->rememberCacheForever($cacheKey, function () use ($refresh) {
+//        return $this->rememberCacheForever($cacheKey, function () use ($refresh) {
             $base = ['query' => [], 'mutation' => [], 'types' => []];
             foreach ($this->getResourceHandlers() as $resourceInfo) {
                 $className = array_get($resourceInfo, 'class_name');
@@ -199,7 +199,7 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
             }
 
             return $base;
-        });
+//        });
     }
 
     /**
