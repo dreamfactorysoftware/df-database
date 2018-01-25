@@ -142,16 +142,6 @@ class Schema implements DbSchemaInterface
     }
 
     /**
-     * Returns the default schema name for the connection.
-     *
-     * @return string default schema.
-     */
-    public function getDefaultSchema()
-    {
-        return $this->findDefaultSchema();
-    }
-
-    /**
      * Returns the default schema name for the database.
      * This method should be overridden by child classes in order to support this feature
      * because the default implementation simply returns null.
@@ -159,21 +149,9 @@ class Schema implements DbSchemaInterface
      * @throws \Exception
      * @return string Default schema name for this connection
      */
-    protected function findDefaultSchema()
+    public function getDefaultSchema()
     {
         return null;
-    }
-
-    /**
-     * Returns all schema names on the connection.
-     *
-     * @return array all schema names on the connection.
-     */
-    public function getSchemas()
-    {
-        $schemas = $this->findSchemaNames();
-
-        return $schemas;
     }
 
     /**
@@ -184,7 +162,7 @@ class Schema implements DbSchemaInterface
      * @throws \Exception
      * @return array all schema names in the database.
      */
-    protected function findSchemaNames()
+    public function getSchemas()
     {
 //        throw new \Exception( "{get_class( $this )} does not support fetching all schema names." );
         return [''];
@@ -215,6 +193,7 @@ class Schema implements DbSchemaInterface
      * @param bool   $returnName
      *
      * @return mixed
+     * @throws \Exception
      */
     public function doesResourceExist($type, $name, $returnName = false)
     {
@@ -241,6 +220,7 @@ class Schema implements DbSchemaInterface
      * @param string $schema Schema name if any specific requested
      *
      * @return array
+     * @throws \Exception
      */
     public function getResourceNames($type, $schema = '')
     {
@@ -251,8 +231,8 @@ class Schema implements DbSchemaInterface
                 return $this->getTableNames($schema);
             case DbResourceTypes::TYPE_VIEW:
                 return $this->getViewNames($schema);
-            case DbResourceTypes::TYPE_TABLE_RELATIONSHIP:
-                return $this->getTableReferences();
+            case DbResourceTypes::TYPE_TABLE_CONSTRAINT:
+                return $this->getTableConstraints($schema);
             case DbResourceTypes::TYPE_PROCEDURE:
                 return $this->getProcedureNames($schema);
             case DbResourceTypes::TYPE_FUNCTION:
@@ -269,6 +249,7 @@ class Schema implements DbSchemaInterface
      * @param string|NamedResourceSchema $name Resource name
      *
      * @return null|mixed
+     * @throws \Exception
      */
     public function getResource($type, &$name)
     {
@@ -317,7 +298,7 @@ class Schema implements DbSchemaInterface
                 }
                 $this->dropColumns($name[0], $name[1]);
                 break;
-            case DbResourceTypes::TYPE_TABLE_RELATIONSHIP:
+            case DbResourceTypes::TYPE_TABLE_CONSTRAINT:
                 if (!is_array($name) || (2 > count($name))) {
                     throw new \InvalidArgumentException('Invalid resource name for type.');
                 }
@@ -343,7 +324,7 @@ class Schema implements DbSchemaInterface
      */
     protected function loadTable(TableSchema $table)
     {
-        $this->loadFields($table);
+        $this->loadTableColumns($table);
     }
 
     /**
@@ -353,86 +334,31 @@ class Schema implements DbSchemaInterface
      */
     protected function loadView(TableSchema $table)
     {
-        $this->loadFields($table);
-    }
-
-    /**
-     * Loads the column metadata for the specified table.
-     *
-     * @param TableSchema $table Any already known info about the table
-     */
-    protected function loadFields(TableSchema $table)
-    {
-        if (!empty($columns = $this->findColumns($table))) {
-            foreach ($columns as $column) {
-                $column = array_change_key_case((array)$column, CASE_LOWER);
-                $c = $this->createColumn($column);
-
-                if ($c->isPrimaryKey) {
-                    if ($c->autoIncrement) {
-                        $table->sequenceName = array_get($column, 'sequence', $c->name);
-                        if ((DbSimpleTypes::TYPE_INTEGER === $c->type)) {
-                            $c->type = DbSimpleTypes::TYPE_ID;
-                        }
-                    }
-                    $table->addPrimaryKey($c->name);
-                }
-                $table->addColumn($c);
-            }
-        }
-    }
-
-    /**
-     * Creates a table column.
-     *
-     * @param array $column column metadata
-     *
-     * @return ColumnSchema normalized column metadata
-     */
-    protected function createColumn($column)
-    {
-        $c = new ColumnSchema($column);
-        $c->quotedName = $this->quoteColumnName($c->name);
-
-        return $c;
+        $this->loadTableColumns($table);
     }
 
     /**
      * Finds the column metadata from the database for the specified table.
      *
      * @param TableSchema $table Any already known info about the table
-     * @return array
      */
-    protected function findColumns(
+    protected function loadTableColumns(
         /** @noinspection PhpUnusedParameterInspection */
         TableSchema $table
     ) {
+    }
+
+    /**
+     * Returns all table constraints in the database for the specified schemas.
+     * This method should be overridden by child classes in order to support this feature
+     * because the default implementation simply returns empty array.
+     *
+     * @param string $schema the schema of the tables. Defaults to empty string, meaning all schemas.
+     * @return array All table constraints in the database
+     */
+    protected function getTableConstraints($schema = '')
+    {
         return [];
-    }
-
-    /**
-     * Loads the relationship metadata for the specified schemas.
-     *
-     */
-    protected function getTableReferences()
-    {
-        return $this->findTableReferences();
-    }
-
-    /**
-     * Returns all table names in the database.
-     *
-     * @param string $schema the schema of the tables. Defaults to empty string, meaning the current or default schema.
-     *                       If not empty, the returned table names will be prefixed with the schema name.
-     *
-     * @return TableSchema[] all table names in the database.
-     */
-    public function getTableNames($schema = '')
-    {
-        /** @type TableSchema[] $tables */
-        $tables = $this->findTableNames($schema);
-
-        return $tables;
     }
 
     /**
@@ -443,10 +369,10 @@ class Schema implements DbSchemaInterface
      * @param string $schema the schema of the tables. Defaults to empty string, meaning the current or default schema.
      *                       If not empty, the returned table names will be prefixed with the schema name.
      *
-     * @throws \Exception if current schema does not support fetching all table names
-     * @return array all table names in the database.
+     * @return TableSchema[] all table names in the database.
+     * @throws \Exception
      */
-    protected function findTableNames(
+    protected function getTableNames(
         /** @noinspection PhpUnusedParameterInspection */
         $schema = ''
     ) {
@@ -454,47 +380,17 @@ class Schema implements DbSchemaInterface
     }
 
     /**
-     * Returns all table references in the database.
+     * Returns all view names in the database.
      * This method should be overridden by child classes in order to support this feature
      * because the default implementation simply throws an exception.
-     *
-     * @throws \Exception if current schema does not support fetching all table references
-     * @return array all table references in the database.
-     */
-    protected function findTableReferences()
-    {
-        return [];
-//        throw new NotImplementedException("Database or driver does not support fetching all table references.");
-    }
-
-    /**
-     * Returns all view names in the database.
      *
      * @param string $schema the schema of the views. Defaults to empty string, meaning the current or default schema.
      *                       If not empty, the returned view names will be prefixed with the schema name.
      *
      * @return TableSchema[] all view names in the database.
+     * @throws \Exception
      */
-    public function getViewNames($schema = '')
-    {
-        /** @type TableSchema[] $views */
-        $views = $this->findViewNames($schema);
-
-        return $views;
-    }
-
-    /**
-     * Returns all table names in the database.
-     * This method should be overridden by child classes in order to support this feature
-     * because the default implementation simply throws an exception.
-     *
-     * @param string $schema the schema of the views. Defaults to empty string, meaning the current or default schema.
-     *                       If not empty, the returned table names will be prefixed with the schema name.
-     *
-     * @throws \Exception if current schema does not support fetching all view names
-     * @return array all view names in the database.
-     */
-    protected function findViewNames(
+    protected function getViewNames(
         /** @noinspection PhpUnusedParameterInspection */
         $schema = ''
     ) {
@@ -502,19 +398,9 @@ class Schema implements DbSchemaInterface
     }
 
     /**
-     * Loads the metadata for the specified stored procedure.
-     *
-     * @param ProcedureSchema $procedure procedure
-     *
-     * @throws \Exception
-     */
-    protected function loadProcedure(ProcedureSchema $procedure)
-    {
-        $this->loadParameters($procedure);
-    }
-
-    /**
      * Returns all stored procedure names in the database.
+     * This method should be overridden by child classes in order to support this feature
+     * because the default implementation simply throws an exception.
      *
      * @param string $schema the schema of the procedures. Defaults to empty string, meaning the current or default
      *                       schema. If not empty, the returned procedure names will be prefixed with the schema name.
@@ -523,26 +409,23 @@ class Schema implements DbSchemaInterface
      */
     public function getProcedureNames($schema = '')
     {
-        $names = $this->findProcedureNames($schema);
-
-        return $names;
+        return $this->getRoutineNames('PROCEDURE', $schema);
     }
 
     /**
-     * Returns all stored procedure names in the database.
+     * Returns all stored functions names in the database.
      * This method should be overridden by child classes in order to support this feature
      * because the default implementation simply throws an exception.
      *
-     * @param string $schema the schema of the stored procedure. Defaults to empty string, meaning the current or
-     *                       default schema. If not empty, the returned stored procedure names will be prefixed with
-     *                       the schema name.
+     * @param string $schema the schema of the functions. Defaults to empty string, meaning the current or default
+     *                       schema. If not empty, the returned functions names will be prefixed with the schema name.
      *
-     * @throws \Exception if current schema does not support fetching all stored procedure names
-     * @return array all stored procedure names in the database.
+     * @return array all stored functions names in the database.
      */
-    protected function findProcedureNames($schema = '')
+    public function getFunctionNames($schema = '')
     {
-        return $this->findRoutineNames('PROCEDURE', $schema);
+        return $this->getRoutineNames('FUNCTION', $schema);
+//        throw new NotImplementedException("Database or driver does not support fetching all stored function names.");
     }
 
     /**
@@ -556,39 +439,21 @@ class Schema implements DbSchemaInterface
      * @throws \InvalidArgumentException
      * @return array all stored function names in the database.
      */
-    protected function findRoutineNames($type, $schema = '')
+    protected function getRoutineNames($type, $schema = '')
     {
-        $bindings = [':type' => $type];
-        $where = 'ROUTINE_TYPE = :type';
-        if (!empty($schema)) {
-            $where .= ' AND ROUTINE_SCHEMA = :schema';
-            $bindings[':schema'] = $schema;
-        }
+        return [];
+    }
 
-        $sql = <<<MYSQL
-SELECT ROUTINE_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.ROUTINES WHERE {$where}
-MYSQL;
-
-        $rows = $this->connection->select($sql, $bindings);
-
-        $names = [];
-        foreach ($rows as $row) {
-            $row = array_change_key_case((array)$row, CASE_UPPER);
-            $resourceName = array_get($row, 'ROUTINE_NAME');
-            $schemaName = $schema;
-            $internalName = $schemaName . '.' . $resourceName;
-            $name = $resourceName;
-            $quotedName = $this->quoteTableName($schemaName) . '.' . $this->quoteTableName($resourceName);
-            $returnType = array_get($row, 'DATA_TYPE');
-            if (!empty($returnType) && (0 !== strcasecmp('void', $returnType))) {
-                $returnType = static::extractSimpleType($returnType);
-            }
-            $settings = compact('schemaName', 'resourceName', 'name', 'internalName', 'quotedName', 'returnType');
-            $names[strtolower($name)] =
-                ('PROCEDURE' === $type) ? new ProcedureSchema($settings) : new FunctionSchema($settings);
-        }
-
-        return $names;
+    /**
+     * Loads the metadata for the specified stored procedure.
+     *
+     * @param ProcedureSchema $procedure procedure
+     *
+     * @throws \Exception
+     */
+    protected function loadProcedure(ProcedureSchema $procedure)
+    {
+        $this->loadParameters($procedure);
     }
 
     /**
@@ -608,73 +473,6 @@ MYSQL;
      */
     protected function loadParameters(RoutineSchema $holder)
     {
-        $sql = <<<MYSQL
-SELECT p.ORDINAL_POSITION, p.PARAMETER_MODE, p.PARAMETER_NAME, p.DATA_TYPE, p.CHARACTER_MAXIMUM_LENGTH, 
-p.NUMERIC_PRECISION, p.NUMERIC_SCALE
-FROM INFORMATION_SCHEMA.PARAMETERS AS p 
-JOIN INFORMATION_SCHEMA.ROUTINES AS r ON r.SPECIFIC_NAME = p.SPECIFIC_NAME
-WHERE r.ROUTINE_NAME = '{$holder->resourceName}' AND r.ROUTINE_SCHEMA = '{$holder->schemaName}'
-MYSQL;
-
-        $params = $this->connection->select($sql);
-        foreach ($params as $row) {
-            $row = array_change_key_case((array)$row, CASE_UPPER);
-            $name = ltrim(array_get($row, 'PARAMETER_NAME'), '@'); // added on by some drivers, i.e. @name
-            $pos = intval(array_get($row, 'ORDINAL_POSITION'));
-            $simpleType = static::extractSimpleType(array_get($row, 'DATA_TYPE'));
-            if (0 === $pos) {
-                $holder->returnType = $simpleType;
-            } else {
-                $holder->addParameter(new ParameterSchema(
-                    [
-                        'name'       => $name,
-                        'position'   => $pos,
-                        'param_type' => array_get($row, 'PARAMETER_MODE'),
-                        'type'       => $simpleType,
-                        'db_type'    => array_get($row, 'DATA_TYPE'),
-                        'length'     => (isset($row['CHARACTER_MAXIMUM_LENGTH']) ? intval(array_get($row,
-                            'CHARACTER_MAXIMUM_LENGTH')) : null),
-                        'precision'  => (isset($row['NUMERIC_PRECISION']) ? intval(array_get($row, 'NUMERIC_PRECISION'))
-                            : null),
-                        'scale'      => (isset($row['NUMERIC_SCALE']) ? intval(array_get($row, 'NUMERIC_SCALE'))
-                            : null),
-                    ]
-                ));
-            }
-        }
-    }
-
-    /**
-     * Returns all stored functions names in the database.
-     *
-     * @param string $schema the schema of the functions. Defaults to empty string, meaning the current or default
-     *                       schema. If not empty, the returned functions names will be prefixed with the schema name.
-     *
-     * @return array all stored functions names in the database.
-     */
-    public function getFunctionNames($schema = '')
-    {
-        $names = $this->findFunctionNames($schema);
-
-        return $names;
-    }
-
-    /**
-     * Returns all stored function names in the database.
-     * This method should be overridden by child classes in order to support this feature
-     * because the default implementation simply throws an exception.
-     *
-     * @param string $schema the schema of the stored function. Defaults to empty string, meaning the current or
-     *                       default schema. If not empty, the returned stored function names will be prefixed with the
-     *                       schema name.
-     *
-     * @throws \Exception if current schema does not support fetching all stored function names
-     * @return array all stored function names in the database.
-     */
-    protected function findFunctionNames($schema = '')
-    {
-        return $this->findRoutineNames('FUNCTION', $schema);
-//        throw new NotImplementedException("Database or driver does not support fetching all stored function names.");
     }
 
     /**

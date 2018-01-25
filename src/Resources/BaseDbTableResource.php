@@ -1705,7 +1705,6 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
      * @param bool       $continue
      * @param bool       $single
      *
-     * @throws NotImplementedException
      * @return null|array Array of output fields
      */
     protected function addToTransaction(
@@ -1764,8 +1763,8 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
      * @param array            $record Record containing relationships by name if any
      * @param RelationSchema[] $relations
      *
-     * @throws InternalServerErrorException
      * @return void
+     * @throws BadRequestException
      */
     protected function updatePreRelations(&$record, $relations)
     {
@@ -1788,8 +1787,9 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
      * @param RelationSchema[] $relations
      * @param bool             $allow_delete
      *
-     * @throws InternalServerErrorException
      * @return void
+     * @throws BadRequestException
+     * @throws InternalServerErrorException
      */
     protected function updatePostRelations($table, $record, $relations, $allow_delete = false)
     {
@@ -1838,9 +1838,11 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
      * @param array            $data
      * @param boolean          $refresh
      *
-     * @throws InternalServerErrorException
-     * @throws BadRequestException
      * @return void
+     * @throws BadRequestException
+     * @throws ForbiddenException
+     * @throws InternalServerErrorException
+     * @throws RestException
      */
     protected function retrieveRelatedRecords(TableSchema $schema, $relations, $requests, &$data, $refresh = false)
     {
@@ -2010,14 +2012,19 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
      * @param array          $extras
      *
      * @return void
-     * @throws ForbiddenException
      * @throws InternalServerErrorException
      * @throws RestException
+     * @throws \Exception
      */
     protected function retrieveRelationRecords(TableSchema $schema, RelationSchema $relation, &$data, $extras)
     {
         $relationName = $relation->getName(true);
-        $localFieldInfo = $schema->getColumn($relation->field);
+        if (1 < count($relation->field)) {
+            // todo How to handle multiple column foreign keys?
+            throw new NotImplementedException("Relating records with multi-column foreign keys is not currently supported.");
+        }
+        $relField = current($relation->field);
+        $localFieldInfo = $schema->getColumn($relField);
         $localField = $localFieldInfo->getName(true);
         $extras = (is_array($extras) ? $extras : []);
 
@@ -2050,7 +2057,12 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                     $this->getServiceName();
                 $refSchema = $this->getTableSchema($refService, $relation->refTable);
                 $refTable = $refSchema->getName(true);
-                if (empty($refField = $refSchema->getColumn($relation->refField))) {
+                if (1 < count($relation->refField)) {
+                    // todo How to handle multiple column foreign keys?
+                    throw new NotImplementedException("Relating records with multi-column foreign keys is not currently supported.");
+                }
+                $refField = current($relation->refField);
+                if (empty($refField = $refSchema->getColumn($refField))) {
                     throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '{$relation->refField} not found.");
                 }
 
@@ -2088,7 +2100,12 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                     $this->getServiceName();
                 $refSchema = $this->getTableSchema($refService, $relation->refTable);
                 $refTable = $refSchema->getName(true);
-                if (empty($refField = $refSchema->getColumn($relation->refField))) {
+                if (1 < count($relation->refField)) {
+                    // todo How to handle multiple column foreign keys?
+                    throw new NotImplementedException("Relating records with multi-column foreign keys is not currently supported.");
+                }
+                $refField = current($relation->refField);
+                if (empty($refField = $refSchema->getColumn($refField))) {
                     throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '{$relation->refField} not found.");
                 }
 
@@ -2126,7 +2143,12 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                     $this->getServiceName();
                 $refSchema = $this->getTableSchema($refService, $relation->refTable);
                 $refTable = $refSchema->getName(true);
-                if (empty($refField = $refSchema->getColumn($relation->refField))) {
+                if (1 < count($relation->refField)) {
+                    // todo How to handle multiple column foreign keys?
+                    throw new NotImplementedException("Relating records with multi-column foreign keys is not currently supported.");
+                }
+                $refField = current($relation->refField);
+                if (empty($refField = $refSchema->getColumn($refField))) {
                     throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '{$relation->refField} not found.");
                 }
 
@@ -2163,8 +2185,18 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                     $this->getServiceName();
                 $junctionSchema = $this->getTableSchema($junctionService, $relation->junctionTable);
                 $junctionTable = $junctionSchema->getName(true);
-                $junctionField = $junctionSchema->getColumn($relation->junctionField);
-                $junctionRefField = $junctionSchema->getColumn($relation->junctionRefField);
+                if (1 < count($relation->junctionField)) {
+                    // todo How to handle multiple column foreign keys?
+                    throw new NotImplementedException("Relating records with multi-column foreign keys is not currently supported.");
+                }
+                $junctionField = current($relation->junctionField);
+                $junctionField = $junctionSchema->getColumn($junctionField);
+                if (1 < count($relation->junctionRefField)) {
+                    // todo How to handle multiple column foreign keys?
+                    throw new NotImplementedException("Relating records with multi-column foreign keys is not currently supported.");
+                }
+                $junctionRefField = current($relation->junctionRefField);
+                $junctionRefField = $junctionSchema->getColumn($junctionRefField);
                 if (empty($junctionTable) ||
                     empty($junctionField) ||
                     empty($junctionRefField)
@@ -2196,7 +2228,12 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                             $this->getServiceName();
                         $refSchema = $this->getTableSchema($refService, $relation->refTable);
                         $refTable = $refSchema->getName(true);
-                        if (empty($refField = $refSchema->getColumn($relation->refField))) {
+                        if (1 < count($relation->refField)) {
+                            // todo How to handle multiple column foreign keys?
+                            throw new NotImplementedException("Relating records with multi-column foreign keys is not currently supported.");
+                        }
+                        $refField = current($relation->refField);
+                        if (empty($refField = $refSchema->getColumn($refField))) {
                             throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '{$relation->refField} not found.");
                         }
                         $refFieldName = $refField->getName(true);
@@ -2258,7 +2295,12 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                 $this->getServiceName();
             $refSchema = $this->getTableSchema($refService, $relation->refTable);
             $refTable = $refSchema->getName(true);
-            if (empty($refField = $refSchema->getColumn($relation->refField))) {
+            if (1 < count($relation->refField)) {
+                // todo How to handle multiple column foreign keys?
+                throw new NotImplementedException("Relating records with multi-column foreign keys is not currently supported.");
+            }
+            $refField = current($relation->refField);
+            if (empty($refField = $refSchema->getColumn($refField))) {
                 throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '{$relation->refField} not found.");
             }
 
@@ -2300,10 +2342,10 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
 
             if (!empty($insertMany)) {
                 if (!empty($newIds = $this->createForeignRecords($refService, $refSchema, $insertMany))) {
-                    if ($relation->refField === $pkFieldAlias) {
-                        $record[$relation->field] = array_get(reset($newIds), $pkFieldAlias);
+                    if ($relation->refField[0] === $pkFieldAlias) {
+                        $record[$relation->field[0]] = array_get(reset($newIds), $pkFieldAlias);
                     } else {
-                        $record[$relation->field] = array_get(reset($insertMany), $relation->refField);
+                        $record[$relation->field[0]] = array_get(reset($insertMany), $relation->refField[0]);
                     }
                 }
             }
@@ -2323,8 +2365,9 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
      * @param array          $child_record
      * @param bool           $allow_delete
      *
-     * @throws BadRequestException
      * @return void
+     * @throws BadRequestException
+     * @throws NotImplementedException
      */
     protected function assignOneToOne(
         TableSchema $one_table,
@@ -2333,8 +2376,13 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
         $child_record,
         $allow_delete = false
     ) {
+        if (1 < count($relation->field)) {
+            // todo How to handle multiple column foreign keys?
+            throw new NotImplementedException("Relating records with multi-column foreign keys is not currently supported.");
+        }
+        $relField = current($relation->field);
         // update currently only supports one id field
-        if (empty($parent_id = array_get($parent_record, $relation->field))) {
+        if (empty($parent_id = array_get($parent_record, $relField))) {
             throw new BadRequestException("The {$one_table->getName(true)} id can not be empty.");
         }
 
@@ -2344,7 +2392,12 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                 $this->getServiceName();
             $refSchema = $this->getTableSchema($refService, $relation->refTable);
             $refTable = $refSchema->getName(true);
-            if (empty($refField = $refSchema->getColumn($relation->refField))) {
+            if (1 < count($relation->field)) {
+                // todo How to handle multiple column foreign keys?
+                throw new NotImplementedException("Relating records with multi-column foreign keys is not currently supported.");
+            }
+            $refField = current($relation->refField);
+            if (empty($refField = $refSchema->getColumn($refField))) {
                 throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '{$relation->refField} not found.");
             }
 
@@ -2443,8 +2496,9 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
      * @param array          $many_records
      * @param bool           $allow_delete
      *
-     * @throws BadRequestException
      * @return void
+     * @throws BadRequestException
+     * @throws NotImplementedException
      */
     protected function assignManyToOne(
         TableSchema $one_table,
@@ -2454,8 +2508,13 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
         $allow_delete = false
     ) {
         // update currently only supports one id field
-        if (empty($one_id = array_get($one_record, $relation->field))) {
-            throw new BadRequestException("The {$one_table->getName(true)} id can not be empty.");
+        if (1 < count($relation->field)) {
+            // todo How to handle multiple column foreign keys?
+            throw new NotImplementedException("Relating records with multi-column foreign keys is not currently supported.");
+        }
+        $relField = current($relation->field);
+        if (empty($one_id = array_get($one_record, $relField))) {
+            throw new BadRequestException("The {$one_table->getName(true)} referencing field $relField can not be empty.");
         }
 
         try {
@@ -2464,7 +2523,12 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                 $this->getServiceName();
             $refSchema = $this->getTableSchema($refService, $relation->refTable);
             $refTable = $refSchema->getName(true);
-            if (empty($refField = $refSchema->getColumn($relation->refField))) {
+            if (1 < count($relation->refField)) {
+                // todo How to handle multiple column foreign keys?
+                throw new NotImplementedException("Relating records with multi-column foreign keys is not currently supported.");
+            }
+            $refField = current($relation->refField);
+            if (empty($refField = $refSchema->getColumn($refField))) {
                 throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '{$relation->refField} not found.");
             }
 
@@ -2472,10 +2536,9 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
             if (1 < count($pkFields)) {
                 // todo How to handle multiple primary keys?
                 throw new NotImplementedException("Relating records with multiple field primary keys is not currently supported.");
-            } else {
-                $pkField = current($pkFields);
             }
 
+            $pkField = current($pkFields);
             $pkAutoSet = $pkField->autoIncrement;
             $pkFieldAlias = $pkField->getName(true);
             $refFieldAlias = $refField->getName(true);
@@ -2738,7 +2801,12 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
         RelationSchema $relation,
         $many_records = []
     ) {
-        if (empty($one_id = array_get($one_record, $relation->field))) {
+        if (1 < count($relation->field)) {
+            // todo How to handle multiple column foreign keys?
+            throw new NotImplementedException("Relating records with multi-column foreign keys is not currently supported.");
+        }
+        $relField = current($relation->field);
+        if (empty($one_id = array_get($one_record, $relField))) {
             throw new BadRequestException("The {$one_table->getName(true)} id can not be empty.");
         }
 
@@ -2759,7 +2827,12 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                 $this->getServiceName();
             $refSchema = $this->getTableSchema($refService, $relation->refTable);
             $refTable = $refSchema->getName(true);
-            if (empty($refField = $refSchema->getColumn($relation->refField))) {
+            if (1 < count($relation->refField)) {
+                // todo How to handle multiple column foreign keys?
+                throw new NotImplementedException("Relating records with multi-column foreign keys is not currently supported.");
+            }
+            $refField = current($relation->refField);
+            if (empty($refField = $refSchema->getColumn($refField))) {
                 throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '{$relation->refField} not found.");
             }
 
@@ -2779,10 +2852,20 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                 $this->getServiceName();
             $junctionSchema = $this->getTableSchema($junctionService, $relation->junctionTable);
             $junctionTable = $junctionSchema->getName(true);
-            if (empty($junctionField = $junctionSchema->getColumn($relation->junctionField))) {
+            if (1 < count($relation->junctionField)) {
+                // todo How to handle multiple column foreign keys?
+                throw new NotImplementedException("Relating records with multi-column foreign keys is not currently supported.");
+            }
+            $junctionField = current($relation->junctionField);
+            if (empty($junctionField = $junctionSchema->getColumn($junctionField))) {
                 throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '{$relation->junctionField} not found.");
             }
-            if (empty($junctionRefField = $junctionSchema->getColumn($relation->junctionRefField))) {
+            if (1 < count($relation->junctionField)) {
+                // todo How to handle multiple column foreign keys?
+                throw new NotImplementedException("Relating records with multi-column foreign keys is not currently supported.");
+            }
+            $junctionRefField = current($relation->junctionRefField);
+            if (empty($junctionRefField = $junctionSchema->getColumn($junctionRefField))) {
                 throw new InternalServerErrorException("Incorrect relationship configuration detected. Field '{$relation->junctionRefField} not found.");
             }
 
