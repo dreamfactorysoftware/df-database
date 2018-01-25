@@ -3,6 +3,7 @@ All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
+## [0.9.1] - 2018-01-25
 ### Added
 - DF-1275 Initial support for multi-column constraints
 
@@ -92,7 +93,8 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 ## 0.1.0 - 2015-10-24
 First official release working with the new [dreamfactory](https://github.com/dreamfactorysoftware/dreamfactory) project.
 
-[Unreleased]: https://github.com/dreamfactorysoftware/df-database/compare/0.9.0...HEAD
+[Unreleased]: https://github.com/dreamfactorysoftware/df-database/compare/0.9.1...HEAD
+[0.9.1]: https://github.com/dreamfactorysoftware/df-database/compare/0.9.0...0.9.1
 [0.9.0]: https://github.com/dreamfactorysoftware/df-database/compare/0.8.0...0.9.0
 [0.8.0]: https://github.com/dreamfactorysoftware/df-database/compare/0.7.0...0.8.0
 [0.7.0]: https://github.com/dreamfactorysoftware/df-database/compare/0.6.1...0.7.0
