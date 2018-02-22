@@ -1987,9 +1987,9 @@ MYSQL;
             case DbSimpleTypes::TYPE_TIMESTAMP_ON_CREATE:
             case DbSimpleTypes::TYPE_TIMESTAMP_ON_UPDATE:
                 return static::formatDateTime(
-                    static::getConfigDateTimeFormat($type),
-                    $value,
-                    static::getNativeDateTimeFormat($field_info)
+                    $this->getConfigDateTimeFormat($type),
+                    $this->getNativeDateTimeFormat($field_info),
+                    $value
                 );
         }
 
@@ -2064,42 +2064,42 @@ MYSQL;
     }
 
     /**
-     * @param      $out_format
-     * @param null $in_value
-     * @param null $in_format
+     * @param string $out_format
+     * @param string $in_format
+     * @param mixed $value
      *
      * @return null|string
      */
-    public static function formatDateTime($out_format, $in_value = null, $in_format = null)
+    public static function formatDateTime($out_format, $in_format, $value = null)
     {
-        //  If value is null, current date and time are returned
-        if (!empty($out_format)) {
-            $in_value = (is_string($in_value) || is_null($in_value)) ? $in_value : strval($in_value);
-            if (!empty($in_format)) {
-                if (false === $date = \DateTime::createFromFormat($in_format, $in_value)) {
-                    \Log::error("Failed to create datetime with '$in_value' as format '$in_format'");
+        if (!empty($out_format) && !empty($in_format)) {
+            $value = (is_string($value) || is_null($value)) ? $value : strval($value);
+            if (!empty($value)) {
+                if (false === $date = \DateTime::createFromFormat($in_format, $value)) {
+                    \Log::error("Failed to create datetime with '$value' as format '$in_format'");
                     try {
-                        $date = new \DateTime($in_value);
+                        $date = new \DateTime($value);
                     } catch (\Exception $e) {
-                        \Log::error("Failed to create datetime from '$in_value': " . $e->getMessage());
+                        \Log::error("Failed to create datetime from '$value': " . $e->getMessage());
 
-                        return $in_value;
+                        return $value;
                     }
                 }
             } else {
+                //  If value is null, current date and time are returned
                 try {
-                    $date = new \DateTime($in_value);
+                    $date = new \DateTime();
                 } catch (\Exception $e) {
-                    \Log::error("Failed to create datetime from '$in_value': " . $e->getMessage());
+                    \Log::error("Failed to create current datetime: " . $e->getMessage());
 
-                    return $in_value;
+                    return $value;
                 }
             }
 
             return $date->format($out_format);
         }
 
-        return $in_value;
+        return $value;
     }
 
     /**
@@ -2160,9 +2160,9 @@ MYSQL;
             case DbSimpleTypes::TYPE_TIMESTAMP_ON_CREATE:
             case DbSimpleTypes::TYPE_TIMESTAMP_ON_UPDATE:
                 $value = $this->formatDateTime(
-                    static::getNativeDateTimeFormat($field_info),
-                    $value,
-                    static::getConfigDateTimeFormat($field_info->type)
+                    $this->getNativeDateTimeFormat($field_info),
+                    $this->getConfigDateTimeFormat($field_info->type),
+                    $value
                 );
                 break;
 
