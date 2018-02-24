@@ -1708,7 +1708,7 @@ MYSQL;
     {
         switch (strtolower($type)) {
             case 'bit':
-            case (false !== strpos($type, 'bool')):
+            case (false !== stripos($type, 'bool')):
                 $value = DbSimpleTypes::TYPE_BOOLEAN;
                 break;
 
@@ -1728,12 +1728,12 @@ MYSQL;
                 $value = DbSimpleTypes::TYPE_DECIMAL;
                 break;
 
-            case (false !== strpos($type, 'double')):
+            case (false !== stripos($type, 'double')):
                 $value = DbSimpleTypes::TYPE_DOUBLE;
                 break;
 
             case 'real':
-            case (false !== strpos($type, 'float')):
+            case (false !== stripos($type, 'float')):
                 if ($size == 53) {
                     $value = DbSimpleTypes::TYPE_DOUBLE;
                 } else {
@@ -1741,7 +1741,7 @@ MYSQL;
                 }
                 break;
 
-            case (false !== strpos($type, 'money')):
+            case (false !== stripos($type, 'money')):
                 $value = DbSimpleTypes::TYPE_MONEY;
                 break;
 
@@ -1768,12 +1768,12 @@ MYSQL;
                 $value = DbSimpleTypes::TYPE_BIG_INT;
                 break;
 
-            case (false !== strpos($type, 'timestamp')):
+            case (false !== stripos($type, 'timestamp')):
             case 'datetimeoffset': //  MSSQL
                 $value = DbSimpleTypes::TYPE_TIMESTAMP;
                 break;
 
-            case (false !== strpos($type, 'datetime')):
+            case (false !== stripos($type, 'datetime')):
                 $value = DbSimpleTypes::TYPE_DATETIME;
                 break;
 
@@ -1785,18 +1785,18 @@ MYSQL;
                 $value = DbSimpleTypes::TYPE_TIME_UUID;
                 break;
 
-            case (false !== strpos($type, 'time')):
+            case (false !== stripos($type, 'time')):
                 $value = DbSimpleTypes::TYPE_TIME;
                 break;
 
-            case (false !== strpos($type, 'binary')):
-            case (false !== strpos($type, 'blob')):
+            case (false !== stripos($type, 'binary')):
+            case (false !== stripos($type, 'blob')):
                 $value = DbSimpleTypes::TYPE_BINARY;
                 break;
 
             //	String types
-            case (false !== strpos($type, 'clob')):
-            case (false !== strpos($type, 'text')):
+            case (false !== stripos($type, 'clob')):
+            case (false !== stripos($type, 'text')):
             case 'lvarchar': // informix
                 $value = DbSimpleTypes::TYPE_TEXT;
                 break;
@@ -1839,7 +1839,7 @@ MYSQL;
                 break;
 
             case 'string':
-            case (false !== strpos($type, 'char')):
+            case (false !== stripos($type, 'char')):
             default:
                 $value = DbSimpleTypes::TYPE_STRING; // default to string to handle anything
                 break;
