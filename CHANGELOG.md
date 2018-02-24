@@ -3,6 +3,7 @@ All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
+## [0.9.2] - 2018-02-25
 - DF-1303 Oracle all caps data types are not getting caught for type simplification
 - DF-1288 Disable datetime types formatting when there is no translations configured
 
@@ -96,7 +97,8 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 ## 0.1.0 - 2015-10-24
 First official release working with the new [dreamfactory](https://github.com/dreamfactorysoftware/dreamfactory) project.
 
-[Unreleased]: https://github.com/dreamfactorysoftware/df-database/compare/0.9.1...HEAD
+[Unreleased]: https://github.com/dreamfactorysoftware/df-database/compare/0.9.2...HEAD
+[0.9.2]: https://github.com/dreamfactorysoftware/df-database/compare/0.9.1...0.9.2
 [0.9.1]: https://github.com/dreamfactorysoftware/df-database/compare/0.9.0...0.9.1
 [0.9.0]: https://github.com/dreamfactorysoftware/df-database/compare/0.8.0...0.9.0
 [0.8.0]: https://github.com/dreamfactorysoftware/df-database/compare/0.7.0...0.8.0
