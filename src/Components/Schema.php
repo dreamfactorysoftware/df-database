@@ -1944,7 +1944,7 @@ MYSQL;
                 return to_bool($value);
             case 'double':
             case 'float':
-                return floatval($value);
+                return $value;
             case 'string':
                 return strval($value);
         }
