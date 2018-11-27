@@ -2513,7 +2513,7 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
             throw new NotImplementedException("Relating records with multi-column foreign keys is not currently supported.");
         }
         $relField = current($relation->field);
-        if (empty($one_id = array_get($one_record, $relField))) {
+        if (empty($one_id = array_get($one_record, strtolower($relField)))) {
             throw new BadRequestException("The {$one_table->getName(true)} referencing field $relField can not be empty.");
         }
 
@@ -2806,7 +2806,7 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
             throw new NotImplementedException("Relating records with multi-column foreign keys is not currently supported.");
         }
         $relField = current($relation->field);
-        if (empty($one_id = array_get($one_record, $relField))) {
+        if (empty($one_id = array_get($one_record, strtolower($relField)))) {
             throw new BadRequestException("The {$one_table->getName(true)} id can not be empty.");
         }
 
