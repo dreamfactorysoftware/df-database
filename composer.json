@@ -29,7 +29,7 @@
     "wiki":   "https://wiki.dreamfactory.com"
   },
   "require":     {
-    "dreamfactory/df-core": "~0.14.1",
+    "dreamfactory/df-core": "~0.15.1",
     "dreamfactory/df-graphql": "~0.1.0"
   },
   "require-dev": {
