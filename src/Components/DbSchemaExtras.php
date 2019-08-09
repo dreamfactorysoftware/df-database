@@ -34,7 +34,7 @@ trait DbSchemaExtras
         }
 
         $result = DbTableExtras::whereServiceId($this->getServiceId())
-            ->whereIn('table', $values)->get((array)$select)->toArray();
+            ->get((array)$select)->toArray();
 
         return $result;
     }
