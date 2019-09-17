@@ -29,8 +29,8 @@
     "wiki":   "https://wiki.dreamfactory.com"
   },
   "require":     {
-    "dreamfactory/df-core": "~0.15.1",
-    "dreamfactory/df-graphql": "~0.1.1"
+    "dreamfactory/df-core": "dev-laravel-upgrade",
+    "dreamfactory/df-graphql": "dev-laravel-upgrade"
   },
   "require-dev": {
     "phpunit/phpunit": "@stable"
