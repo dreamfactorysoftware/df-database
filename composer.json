@@ -28,6 +28,8 @@
     "issues": "https://github.com/dreamfactorysoftware/df-database/issues",
     "wiki":   "https://wiki.dreamfactory.com"
   },
+  "minimum-stability": "dev",
+  "prefer-stable":     true,
   "require":     {
     "dreamfactory/df-core": "~0.15.1",
     "dreamfactory/df-graphql": "~0.1.1"
