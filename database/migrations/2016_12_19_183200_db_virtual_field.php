@@ -26,8 +26,7 @@ class DbVirtualField extends Migration
     public function down()
     {
         Schema::table('db_field_extras', function (Blueprint $table) {
-            $table->dropColumn('is_virtual');
-            $table->dropColumn('is_aggregate');
+            $table->dropColumn(['is_virtual', 'is_aggregate']);
         });
     }
 }
