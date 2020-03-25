@@ -3197,12 +3197,12 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                             isset($fieldInfo->validation, $fieldInfo->validation['api_read_only'])
                         ) {
                             unset($record[$name]);
-                            continue;
+                            continue 2;
                         }
                         // need to check for id in record and remove it, as some DBs complain.
                         if ($for_update && (DbSimpleTypes::TYPE_ID === $fieldInfo->type)) {
                             unset($record[$name]);
-                            continue;
+                            continue 2;
                         }
                         if (array_key_exists($name, $record)) {
                             $fieldVal = array_get($record, $name);
@@ -3226,14 +3226,14 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                             ) {
                                 // if invalid and exception not thrown, drop it
                                 unset($record[$name]);
-                                continue;
+                                continue 2;
                             }
 
                             try {
                                 $fieldVal = $this->parseValueForSet($fieldVal, $fieldInfo, $for_update);
                             } catch (ForbiddenException $ex) {
                                 unset($record[$name]);
-                                continue;
+                                continue 2;
                             }
 
                             $parsed[$fieldInfo->name] = $fieldVal;
