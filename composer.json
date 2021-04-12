@@ -31,7 +31,7 @@
   "minimum-stability": "dev",
   "prefer-stable":     true,
   "require":     {
-    "dreamfactory/df-core": "~0.22",
+    "dreamfactory/df-core": "~0.23",
     "dreamfactory/df-graphql": "~0.3"
   },
   "require-dev": {
