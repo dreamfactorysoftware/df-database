@@ -288,7 +288,9 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
             }
 
             $result = $this->getSchema()->getResourceNames(DbResourceTypes::TYPE_SCHEMA);
+            \Log::warning("DEBUG: All schemas in getSchemas: ", [$result]);
             $defaultSchema = $this->getDefaultSchema();
+            \Log::warning("DEBUG: Default schema: ", [$defaultSchema]);
             if (!empty($defaultSchema) && (false === array_search($defaultSchema, $result))) {
                 $result[] = $defaultSchema;
             }
@@ -312,6 +314,7 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
             $tables = [];
             $defaultSchema = $this->getNamingSchema();
             $schemaIF = $this->getSchema();
+            \Log::warning("DEBUG: Schemas from getSchemas in getTableNames function: ", [$this->getSchemas($refresh)]);
             foreach ($this->getSchemas($refresh) as $schemaName) {
                 $addSchema = (!empty($schemaName) && ($defaultSchema !== $schemaName));
 
@@ -331,6 +334,7 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
                 }
             }
             ksort($tables, SORT_NATURAL); // sort alphabetically
+            \Log::warning("DEBUG: Table names without db extras: ", [$tables]);
 
             // merge db extras
             if (!empty($extrasEntries = $this->getSchemaExtrasForTables(array_keys($tables)))) {
@@ -345,6 +349,7 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
 
             $this->addToCache('tables', $tables, true);
         }
+        \Log::warning("DEBUG: Table names before adding \$schema (if exists): ", [$tables]);
         if (!empty($schema)) {
             $out = [];
             foreach ($tables as $table => $info) {
@@ -355,7 +360,7 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
 
             $tables = $out;
         }
-
+        \Log::warning("DEBUG: Table names result: ", [$tables]);
         return $tables;
     }
 
