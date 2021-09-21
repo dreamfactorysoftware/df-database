@@ -2246,6 +2246,10 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                             $extras['fields'] = $fields;
                         }
                         $relatedRecords = $this->retrieveVirtualRecords($refService, '_table/' . $refTable, $extras);
+                        // For some bizarre reason, on Debian 9, duplicates of related tables are returned. (It returns the related table, multiplied by the 
+                        // total number of records, e.g 8 records, 8 duplicates.) In fear of breaking things elsewhere, the below will check and delete
+                        // any duplicate entries and update. If there aren't any to begin with, then nothing will change.
+                        $relatedRecords = array_unique($relatedRecords, SORT_REGULAR);
 
                         // Map the records back to data
                         if (!empty($relatedRecords)) {
