@@ -2140,6 +2140,8 @@ MYSQL;
                 break;
 
             case DbSimpleTypes::TYPE_DECIMAL:
+                $value = sprintf('%f', floatval($value));
+                break;
             case DbSimpleTypes::TYPE_DOUBLE:
             case DbSimpleTypes::TYPE_FLOAT:
                 $value = floatval($value);
