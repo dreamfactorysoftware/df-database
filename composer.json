@@ -32,7 +32,7 @@
   "prefer-stable":     true,
   "require":     {
     "dreamfactory/df-core": "~1.1",
-    "dreamfactory/df-graphql": "~0.4"
+    "dreamfactory/df-graphql": "~0.5"
   },
   "require-dev": {
     "phpunit/phpunit": "@stable"
