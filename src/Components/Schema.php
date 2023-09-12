@@ -1976,6 +1976,9 @@ MYSQL;
 
         $type = strtolower(strval($type));
         switch ($type) {
+            // Convert the binary data into a base64 encoded string so we can json encode it later for the response
+            case DbSimpleTypes::TYPE_BINARY:
+                return base64_encode($value);
             // special handling for datetime types
             case DbSimpleTypes::TYPE_DATE:
             case DbSimpleTypes::TYPE_DATETIME:
