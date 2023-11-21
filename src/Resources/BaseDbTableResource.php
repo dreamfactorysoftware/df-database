@@ -3196,13 +3196,14 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                         }
                         break;
                     case DbSimpleTypes::TYPE_BINARY:
-                        if (filter_var($record['blob'], FILTER_VALIDATE_URL) === false) {
-                            $decoded = base64_decode($record['blob']);
-                            $parsed['blob'] = $decoded;
+                        $name = strtolower($fieldInfo->getName(true));
+                        if (filter_var($record[$name], FILTER_VALIDATE_URL) === false) {
+                            $decoded = base64_decode($record[$name]);
+                            $parsed[$fieldInfo->name] = $decoded;
                         } else {
                             $client = new Client();
-                            $response = $client->get($record['blob']);
-                            $parsed['blob'] = $response->getBody()->getContents();
+                            $response = $client->get($record[$name]);
+                            $parsed[$fieldInfo->name] = $response->getBody()->getContents();
                         }
 
                         break;
