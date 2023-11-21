@@ -35,6 +35,7 @@ use DreamFactory\Core\Utility\ResourcesWrapper;
 use DreamFactory\Core\Utility\Session;
 use GraphQL\Type\Definition\Type;
 use ServiceManager;
+use GuzzleHttp\Client;
 
 abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHandlerInterface
 {
@@ -3193,6 +3194,18 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
                         if (isset($userId)) {
                             $parsed[$fieldInfo->name] = $userId;
                         }
+                        break;
+                    case DbSimpleTypes::TYPE_BINARY:
+                        $name = strtolower($fieldInfo->getName(true));
+                        if (filter_var($record[$name], FILTER_VALIDATE_URL) === false) {
+                            $decoded = base64_decode($record[$name]);
+                            $parsed[$fieldInfo->name] = $decoded;
+                        } else {
+                            $client = new Client();
+                            $response = $client->get($record[$name]);
+                            $parsed[$fieldInfo->name] = $response->getBody()->getContents();
+                        }
+
                         break;
                     default:
                         $name = strtolower($fieldInfo->getName(true));
