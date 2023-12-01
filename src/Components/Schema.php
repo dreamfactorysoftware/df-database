@@ -1396,6 +1396,12 @@ MYSQL;
         $result = [];
         try {
             $statement->execute();
+            $errorInfo = $statement->errorInfo();
+            $errorMessage = $errorInfo[2];
+            if ($errorMessage !== null) {
+                $errorCode = $errorInfo[1];
+                throw new \Exception($errorMessage, $errorCode);
+            }
             $reader = new DataReader($statement);
             $reader->setFetchMode(static::ROUTINE_FETCH_MODE);
             do {
