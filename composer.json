@@ -31,7 +31,7 @@
   "minimum-stability": "dev",
   "prefer-stable":     true,
   "require":     {
-    "dreamfactory/df-core": "~1.x"
+    "dreamfactory/df-core": "dev-laravel-11 as 1.0.3"
   },
   "require-dev": {
     "phpunit/phpunit": "@stable"
