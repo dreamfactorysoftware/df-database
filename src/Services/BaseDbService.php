@@ -17,7 +17,6 @@ use DreamFactory\Core\Enums\DbResourceTypes;
 use DreamFactory\Core\Enums\DbSimpleTypes;
 use DreamFactory\Core\Exceptions\InternalServerErrorException;
 use DreamFactory\Core\Exceptions\NotImplementedException;
-use DreamFactory\Core\GraphQL\Contracts\GraphQLHandlerInterface;
 use DreamFactory\Core\Resources\BaseRestResource;
 use DreamFactory\Core\Services\BaseRestService;
 use DreamFactory\Core\Utility\ResourcesWrapper;
@@ -25,7 +24,7 @@ use Illuminate\Database\ConnectionInterface;
 use ServiceManager;
 use Config;
 
-abstract class BaseDbService extends BaseRestService implements DbExtrasInterface, GraphQLHandlerInterface
+abstract class BaseDbService extends BaseRestService implements DbExtrasInterface
 {
     use DbSchemaExtras;
 
@@ -166,41 +165,41 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
      * @return array
      * @throws InternalServerErrorException
      */
-    public function getGraphQLSchema($refresh = false)
-    {
-//        $cacheKey = 'graphql_schema';
-//        if ($refresh) {
-//            $this->removeFromCache($cacheKey);
-//        }
+//     public function getGraphQLSchema($refresh = false)
+//     {
+// //        $cacheKey = 'graphql_schema';
+// //        if ($refresh) {
+// //            $this->removeFromCache($cacheKey);
+// //        }
 
-//        return $this->rememberCacheForever($cacheKey, function () use ($refresh) {
-        $base = ['query' => [], 'mutation' => [], 'types' => []];
-        foreach ($this->getResourceHandlers() as $resourceInfo) {
-            $className = array_get($resourceInfo, 'class_name');
-            if (!class_exists($className)) {
-                throw new InternalServerErrorException('Service configuration class name lookup failed for resource ' .
-                    $className);
-            }
+// //        return $this->rememberCacheForever($cacheKey, function () use ($refresh) {
+//         $base = ['query' => [], 'mutation' => [], 'types' => []];
+//         foreach ($this->getResourceHandlers() as $resourceInfo) {
+//             $className = array_get($resourceInfo, 'class_name');
+//             if (!class_exists($className)) {
+//                 throw new InternalServerErrorException('Service configuration class name lookup failed for resource ' .
+//                     $className);
+//             }
 
-            /** @var BaseRestResource $resource */
-            $resource = $this->instantiateResource($className, $resourceInfo);
-            if ($resource instanceof GraphQLHandlerInterface) {
-                $content = $resource->getGraphQLSchema($refresh);
-                if (isset($content['query'])) {
-                    $base['query'] = array_merge((array)array_get($base, 'query'), (array)$content['query']);
-                }
-                if (isset($content['mutation'])) {
-                    $base['mutation'] = array_merge((array)array_get($base, 'mutation'), (array)$content['mutation']);
-                }
-                if (isset($content['types'])) {
-                    $base['types'] = array_merge((array)array_get($base, 'types'), (array)$content['types']);
-                }
-            }
-        }
+//             /** @var BaseRestResource $resource */
+//             $resource = $this->instantiateResource($className, $resourceInfo);
+//             if ($resource instanceof GraphQLHandlerInterface) {
+//                 $content = $resource->getGraphQLSchema($refresh);
+//                 if (isset($content['query'])) {
+//                     $base['query'] = array_merge((array)array_get($base, 'query'), (array)$content['query']);
+//                 }
+//                 if (isset($content['mutation'])) {
+//                     $base['mutation'] = array_merge((array)array_get($base, 'mutation'), (array)$content['mutation']);
+//                 }
+//                 if (isset($content['types'])) {
+//                     $base['types'] = array_merge((array)array_get($base, 'types'), (array)$content['types']);
+//                 }
+//             }
+//         }
 
-        return $base;
-//        });
-    }
+//         return $base;
+// //        });
+//     }
 
     /**
      * @throws InternalServerErrorException
