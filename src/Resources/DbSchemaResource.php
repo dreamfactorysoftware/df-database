@@ -2277,7 +2277,6 @@ class DbSchemaResource extends BaseRestResource
                 }
             }
         }
-    }
 
         return [
             'related_extras'         => $extras,
@@ -2830,5 +2829,37 @@ class DbSchemaResource extends BaseRestResource
         ];
 
         return $paths;
+    }
+
+    /**
+     * @param array $schema
+     * @return array
+     */
+    protected function describeTableSchema($schema)
+    {
+        // ... existing code ...
+    }
+
+    /**
+     * @param array $schema
+     * @return array
+     */
+    protected function describeViewSchema($schema)
+    {
+        // ... existing code ...
+    }
+
+    // Fix the syntax error around line 2282
+    /**
+     * @param array $schema
+     * @return array
+     */
+    protected function describeProcedureSchema($schema)
+    {
+        return [
+            'name' => $schema['name'],
+            'type' => $schema['type'],
+            'params' => $schema['params']
+        ];
     }
 }
