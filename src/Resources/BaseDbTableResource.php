@@ -27,17 +27,13 @@ use DreamFactory\Core\Exceptions\NotFoundException;
 use DreamFactory\Core\Exceptions\NotImplementedException;
 use DreamFactory\Core\Exceptions\InternalServerErrorException;
 use DreamFactory\Core\Exceptions\RestException;
-use DreamFactory\Core\GraphQL\Contracts\GraphQLHandlerInterface;
-use DreamFactory\Core\GraphQL\Query\ServiceMultiResourceQuery;
-use DreamFactory\Core\GraphQL\Query\ServiceResourceListQuery;
-use DreamFactory\Core\GraphQL\Type\BaseType;
 use DreamFactory\Core\Utility\ResourcesWrapper;
 use DreamFactory\Core\Utility\Session;
 use GraphQL\Type\Definition\Type;
 use ServiceManager;
 use GuzzleHttp\Client;
 
-abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHandlerInterface
+abstract class BaseDbTableResource extends BaseDbResource
 {
     use DataValidator, TableDescriber;
 
@@ -4112,6 +4108,11 @@ abstract class BaseDbTableResource extends BaseDbResource implements GraphQLHand
      */
     public function getGraphQLSchema($refresh = false)
     {
+        // Return empty schema if GraphQL is not available
+        if (!interface_exists('DreamFactory\Core\GraphQL\Contracts\GraphQLHandlerInterface')) {
+            return ['query' => [], 'mutation' => [], 'types' => []];
+        }
+
         $service = $this->getServiceName();
 
         $queries = [];
