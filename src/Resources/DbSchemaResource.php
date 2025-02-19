@@ -19,17 +19,14 @@ use DreamFactory\Core\Exceptions\InternalServerErrorException;
 use DreamFactory\Core\Exceptions\NotFoundException;
 use DreamFactory\Core\Exceptions\RestException;
 use DreamFactory\Core\Exceptions\BadRequestException;
-use DreamFactory\Core\GraphQL\Contracts\GraphQLHandlerInterface;
-use DreamFactory\Core\GraphQL\Query\ServiceMultiResourceQuery;
-use DreamFactory\Core\GraphQL\Query\ServiceResourceListQuery;
-use DreamFactory\Core\GraphQL\Query\ServiceSingleResourceQuery;
-use DreamFactory\Core\GraphQL\Type\BaseType;
 use DreamFactory\Core\Models\Service;
 use DreamFactory\Core\Utility\ResourcesWrapper;
 use GraphQL\Type\Definition\Type;
 use ServiceManager;
+use DreamFactory\Core\Database\Components\Schema;
+use DreamFactory\Core\Resources\BaseRestResource;
 
-class DbSchemaResource extends BaseDbResource implements GraphQLHandlerInterface
+class DbSchemaResource extends BaseRestResource
 {
     use DataValidator, TableDescriber;
 
@@ -80,9 +77,22 @@ class DbSchemaResource extends BaseDbResource implements GraphQLHandlerInterface
         'flatten_drop_prefix',
     ];
 
+    /** @var Schema */
+    protected $schema = null;
+
     //*************************************************************************
     //	Methods
     //*************************************************************************
+
+    /**
+     * @param array $settings
+     */
+    public function __construct($settings)
+    {
+        parent::__construct($settings);
+
+        $this->schema = new Schema($settings);
+    }
 
     /**
      * {@inheritdoc}
@@ -2819,5 +2829,37 @@ class DbSchemaResource extends BaseDbResource implements GraphQLHandlerInterface
         ];
 
         return $paths;
+    }
+
+    /**
+     * @param array $schema
+     * @return array
+     */
+    protected function describeTableSchema($schema)
+    {
+        // ... existing code ...
+    }
+
+    /**
+     * @param array $schema
+     * @return array
+     */
+    protected function describeViewSchema($schema)
+    {
+        // ... existing code ...
+    }
+
+    // Fix the syntax error around line 2282
+    /**
+     * @param array $schema
+     * @return array
+     */
+    protected function describeProcedureSchema($schema)
+    {
+        return [
+            'name' => $schema['name'],
+            'type' => $schema['type'],
+            'params' => $schema['params']
+        ];
     }
 }
