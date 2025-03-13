@@ -105,6 +105,14 @@ class DbSchemaResource extends BaseRestResource
     /**
      * {@inheritdoc}
      */
+    protected static function getResourceIdentifier()
+    {
+        return 'name';
+    }
+
+    /**
+     * {@inheritdoc}
+     */
     public function listResources($schema = null, $refresh = false)
     {
         $result = $this->parent->getTableNames($schema, $refresh);
