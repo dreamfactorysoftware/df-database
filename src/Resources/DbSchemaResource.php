@@ -4,6 +4,7 @@ namespace DreamFactory\Core\Database\Resources;
 
 use DreamFactory\Core\Components\DataValidator;
 use DreamFactory\Core\Database\Components\TableDescriber;
+use DreamFactory\Core\Database\Components\DbSchemaExtras;
 use DreamFactory\Core\Database\Enums\DbFunctionUses;
 use DreamFactory\Core\Database\Enums\FunctionTypes;
 use DreamFactory\Core\Database\Schema\ColumnSchema;
@@ -28,7 +29,7 @@ use DreamFactory\Core\Resources\BaseRestResource;
 
 class DbSchemaResource extends BaseRestResource
 {
-    use DataValidator, TableDescriber;
+    use DataValidator, TableDescriber, DbSchemaExtras;
 
     //*************************************************************************
     //	Constants
