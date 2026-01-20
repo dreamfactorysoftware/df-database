@@ -23,6 +23,7 @@ use DreamFactory\Core\Exceptions\BadRequestException;
 use DreamFactory\Core\Models\Service;
 use DreamFactory\Core\Utility\ResourcesWrapper;
 use GraphQL\Type\Definition\Type;
+use Illuminate\Support\Str;
 use ServiceManager;
 use DreamFactory\Core\Database\Components\Schema;
 use DreamFactory\Core\Resources\BaseRestResource;
@@ -65,6 +66,11 @@ class DbSchemaResource extends BaseRestResource
         'db_function',
         'is_virtual',
         'is_aggregate',
+        'is_foreign_key',
+        'ref_table',
+        'ref_field',
+        'ref_on_update',
+        'ref_on_delete',
     ];
     /**
      * @var array
@@ -1732,7 +1738,12 @@ class DbSchemaResource extends BaseRestResource
             $this->setSchemaTableExtras($tableExtras);
         }
         if (!empty($fieldExtras)) {
+            // DEBUG: Log what's being saved to database
+            \Log::info('updateSchema - SAVING to database - fieldExtras:', $fieldExtras);
             $this->setSchemaFieldExtras($fieldExtras);
+            \Log::info('updateSchema - SAVE COMPLETE');
+        } else {
+            \Log::info('updateSchema - NO fieldExtras to save (array is empty)');
         }
         if (!empty($fieldDrops)) {
             foreach ($fieldDrops as $table => $dropped) {
@@ -1878,7 +1889,16 @@ class DbSchemaResource extends BaseRestResource
 
                 $oldArray = $oldField->toArray();
                 $diffFields = array_diff($this->fieldExtras, ['picklist', 'validation', 'db_function']);
+
+                // DEBUG: Log what we're comparing
+                \Log::info("UPDATE FIELD '$name' - diffFields:", $diffFields);
+                \Log::info("UPDATE FIELD '$name' - field data for comparison:", array_only($field, $diffFields));
+                \Log::info("UPDATE FIELD '$name' - oldArray data for comparison:", array_only($oldArray, $diffFields));
+
                 $extraNew = array_diff_assoc(array_only($field, $diffFields), array_only($oldArray, $diffFields));
+
+                // DEBUG: Log extracted extras
+                \Log::info("UPDATE FIELD '$name' - extraNew (changes detected):", $extraNew);
 
                 if (array_key_exists('picklist', $field)) {
                     $picklist = (array)array_get($field, 'picklist');
@@ -1926,11 +1946,17 @@ class DbSchemaResource extends BaseRestResource
                 }
 
                 // if empty, nothing to do here, check extras
+                \Log::info("UPDATE FIELD '$name' - settingsNew check - empty=" . (empty($settingsNew) ? 'YES' : 'NO'));
                 if (empty($settingsNew)) {
                     if (!empty($extraNew)) {
                         $extraNew['table'] = $table_schema->name;
                         $extraNew['field'] = $name;
                         $extras[] = $extraNew;
+
+                        // DEBUG: Log early exit save
+                        \Log::info("UPDATE FIELD '$name' - EARLY EXIT SAVE - Adding to extras:", $extraNew);
+                    } else {
+                        \Log::info("UPDATE FIELD '$name' - EARLY EXIT - No extras to save");
                     }
 
                     continue;
@@ -1988,6 +2014,12 @@ class DbSchemaResource extends BaseRestResource
                 $extraNew['table'] = $table_schema->name;
                 $extraNew['field'] = $name;
                 $extras[] = $extraNew;
+
+                // DEBUG: Log what's being added to extras array
+                \Log::info("SAVING FIELD '$name' - Adding to extras array:", $extraNew);
+            } else {
+                // DEBUG: Log when extraNew is empty
+                \Log::info("SAVING FIELD '$name' - extraNew is EMPTY, nothing to save");
             }
         }
 
@@ -2010,6 +2042,9 @@ class DbSchemaResource extends BaseRestResource
                 }
             }
         }
+
+        // DEBUG: Log what extras are being returned
+        \Log::info('buildTableFields - RETURNING extras array:', $extras);
 
         return [
             'columns'       => $columns,
@@ -2301,7 +2336,24 @@ class DbSchemaResource extends BaseRestResource
      */
     protected function cleanClientField(array &$field)
     {
+        // DEBUG: Log original field data
+        \Log::info('cleanClientField - ORIGINAL field data:', $field);
+
+        // Convert camelCase keys to snake_case first
+        $converted = [];
+        foreach ($field as $key => $value) {
+            $snakeKey = Str::snake($key);
+            $converted[$snakeKey] = $value;
+        }
+        $field = $converted;
+
+        // DEBUG: Log after snake_case conversion
+        \Log::info('cleanClientField - AFTER snake_case conversion:', $field);
+
         $field = array_change_key_case($field, CASE_LOWER);
+
+        // DEBUG: Log after lowercase conversion
+        \Log::info('cleanClientField - AFTER lowercase conversion:', $field);
         if (empty($name = array_get($field, 'name'))) {
             throw new \Exception("Invalid schema detected - no name element.");
         }

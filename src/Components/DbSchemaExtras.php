@@ -158,6 +158,11 @@ trait DbSchemaExtras
                         'db_function',
                         'is_virtual',
                         'is_aggregate',
+                        'is_foreign_key',
+                        'ref_table',
+                        'ref_field',
+                        'ref_on_update',
+                        'ref_on_delete',
                     ]));
             }
         }

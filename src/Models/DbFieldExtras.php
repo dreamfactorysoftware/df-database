@@ -45,15 +45,21 @@ class DbFieldExtras extends BaseSystemModel
         'db_function',
         'is_virtual',
         'is_aggregate',
+        'is_foreign_key',
+        'ref_table',
+        'ref_field',
+        'ref_on_update',
+        'ref_on_delete',
     ];
 
     protected $casts = [
-        'id'           => 'integer',
-        'service_id'   => 'integer',
-        'is_virtual'   => 'boolean',
-        'is_aggregate' => 'boolean',
-        'picklist'     => 'array',
-        'validation'   => 'array',
-        'db_function'  => 'array',
+        'id'             => 'integer',
+        'service_id'     => 'integer',
+        'is_virtual'     => 'boolean',
+        'is_aggregate'   => 'boolean',
+        'is_foreign_key' => 'boolean',
+        'picklist'       => 'array',
+        'validation'     => 'array',
+        'db_function'    => 'array',
     ];
 }
