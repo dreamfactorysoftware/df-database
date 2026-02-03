@@ -27,6 +27,7 @@ use DreamFactory\Core\Exceptions\NotFoundException;
 use DreamFactory\Core\Exceptions\NotImplementedException;
 use DreamFactory\Core\Exceptions\InternalServerErrorException;
 use DreamFactory\Core\Exceptions\RestException;
+use DreamFactory\Core\Database\Components\RelationTransactionContext;
 use DreamFactory\Core\Utility\ResourcesWrapper;
 use DreamFactory\Core\Utility\Session;
 use GraphQL\Type\Definition\Type;
@@ -1763,15 +1764,24 @@ abstract class BaseDbTableResource extends BaseDbResource
      * @return void
      * @throws BadRequestException
      */
-    protected function updatePreRelations(&$record, $relations)
+    protected function updatePreRelations(&$record, $relations, $context = null)
     {
         $record = array_change_key_case($record, CASE_LOWER);
         foreach ($relations as $name => $relationInfo) {
             if (!empty($relatedRecords = array_get($record, $name))) {
                 switch ($relationInfo->type) {
                     case RelationSchema::BELONGS_TO:
-                        $this->updateBelongsTo($relationInfo, $record, $relatedRecords);
-                        unset($record[$name]);
+                        try {
+                            $this->updateBelongsTo($relationInfo, $record, $relatedRecords, $context);
+                            unset($record[$name]);
+                        } catch (\Exception $ex) {
+                            if ($context && $context->shouldContinue()) {
+                                $context->addError($name, $ex);
+                                unset($record[$name]);
+                            } else {
+                                throw $ex;
+                            }
+                        }
                         break;
                 }
             }
@@ -1788,7 +1798,7 @@ abstract class BaseDbTableResource extends BaseDbResource
      * @throws BadRequestException
      * @throws InternalServerErrorException
      */
-    protected function updatePostRelations($table, $record, $relations, $allow_delete = false)
+    protected function updatePostRelations($table, $record, $relations, $allow_delete = false, $context = null)
     {
         $schema = $this->getTableSchema(null, $table);
         $record = array_change_key_case($record, CASE_LOWER);
@@ -1796,33 +1806,44 @@ abstract class BaseDbTableResource extends BaseDbResource
             if (array_key_exists($name, $record)) {
                 $relatedRecords = $record[$name];
                 unset($record[$name]);
-                switch ($relationInfo->type) {
-                    case RelationSchema::HAS_ONE:
-                        $this->assignOneToOne(
-                            $schema,
-                            $record,
-                            $relationInfo,
-                            $relatedRecords,
-                            $allow_delete
-                        );
-                        break;
-                    case RelationSchema::HAS_MANY:
-                        $this->assignManyToOne(
-                            $schema,
-                            $record,
-                            $relationInfo,
-                            $relatedRecords,
-                            $allow_delete
-                        );
-                        break;
-                    case RelationSchema::MANY_MANY:
-                        $this->assignManyToOneByJunction(
-                            $schema,
-                            $record,
-                            $relationInfo,
-                            $relatedRecords
-                        );
-                        break;
+                try {
+                    switch ($relationInfo->type) {
+                        case RelationSchema::HAS_ONE:
+                            $this->assignOneToOne(
+                                $schema,
+                                $record,
+                                $relationInfo,
+                                $relatedRecords,
+                                $allow_delete,
+                                $context
+                            );
+                            break;
+                        case RelationSchema::HAS_MANY:
+                            $this->assignManyToOne(
+                                $schema,
+                                $record,
+                                $relationInfo,
+                                $relatedRecords,
+                                $allow_delete,
+                                $context
+                            );
+                            break;
+                        case RelationSchema::MANY_MANY:
+                            $this->assignManyToOneByJunction(
+                                $schema,
+                                $record,
+                                $relationInfo,
+                                $relatedRecords,
+                                $context
+                            );
+                            break;
+                    }
+                } catch (\Exception $ex) {
+                    if ($context && $context->shouldContinue()) {
+                        $context->addError($name, $ex);
+                    } else {
+                        throw $ex;
+                    }
                 }
             }
         }
@@ -1924,7 +1945,7 @@ abstract class BaseDbTableResource extends BaseDbResource
      * @throws RestException
      * @throws \Exception
      */
-    protected function handleVirtualRecords($serviceName, $resource, $verb, $records = null, $params = null)
+    protected function handleVirtualRecords($serviceName, $resource, $verb, $records = null, $params = null, $context = null)
     {
         if (empty($serviceName)) {
             return null;
@@ -1932,6 +1953,16 @@ abstract class BaseDbTableResource extends BaseDbResource
 
         $result = null;
         $params = (is_array($params) ? $params : []);
+
+        // Propagate transaction semantics to the target service
+        if ($context) {
+            if ($context->shouldRollback()) {
+                $params[ApiOptions::ROLLBACK] = true;
+            }
+            if ($context->shouldContinue()) {
+                $params[ApiOptions::CONTINUES] = true;
+            }
+        }
 
         $request = new Service2ServiceRequest($verb, $params);
         if (!empty($records)) {
@@ -2288,7 +2319,7 @@ abstract class BaseDbTableResource extends BaseDbResource
      * @throws BadRequestException
      * @return void
      */
-    protected function updateBelongsTo(RelationSchema $relation, &$record, $parent)
+    protected function updateBelongsTo(RelationSchema $relation, &$record, $parent, $context = null)
     {
         try {
             $refService = ($this->getServiceId() !== $relation->refServiceId) ?
@@ -2337,12 +2368,19 @@ abstract class BaseDbTableResource extends BaseDbResource
                 if ($found = static::findRecordByNameValue($matchIds, $pkFieldAlias, $id)) {
                     $updateMany[] = $parent;
                 } else {
+                    // When rollback or continue mode is active, validate that referenced
+                    // records exist rather than silently creating new ones
+                    if ($context && ($context->shouldRollback() || $context->shouldContinue())) {
+                        throw new BadRequestException(
+                            "Related record with $pkFieldAlias = $id not found in $refTable."
+                        );
+                    }
                     $insertMany[] = $parent;
                 }
             }
 
             if (!empty($insertMany)) {
-                if (!empty($newIds = $this->createForeignRecords($refService, $refSchema, $insertMany))) {
+                if (!empty($newIds = $this->createForeignRecords($refService, $refSchema, $insertMany, $context))) {
                     if ($relation->refField[0] === $pkFieldAlias) {
                         $record[$relation->field[0]] = array_get(reset($newIds), $pkFieldAlias);
                     } else {
@@ -2352,7 +2390,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             }
 
             if (!empty($updateMany)) {
-                $this->updateForeignRecords($refService, $refSchema, $pkField, $updateMany);
+                $this->updateForeignRecords($refService, $refSchema, $pkField, $updateMany, $context);
             }
         } catch (\Exception $ex) {
             throw new BadRequestException("Failed to update belongs-to assignment.\n{$ex->getMessage()}");
@@ -2375,7 +2413,8 @@ abstract class BaseDbTableResource extends BaseDbResource
         $parent_record,
         RelationSchema $relation,
         $child_record,
-        $allow_delete = false
+        $allow_delete = false,
+        $context = null
     ) {
         if (1 < count($relation->field)) {
             // todo How to handle multiple column foreign keys?
@@ -2506,7 +2545,8 @@ abstract class BaseDbTableResource extends BaseDbResource
         $one_record,
         RelationSchema $relation,
         $many_records = [],
-        $allow_delete = false
+        $allow_delete = false,
+        $context = null
     ) {
         // update currently only supports one id field
         if (1 < count($relation->field)) {
@@ -2645,25 +2685,34 @@ abstract class BaseDbTableResource extends BaseDbResource
         }
     }
 
-    protected function createForeignRecords($service, TableSchema $schema, $records)
+    protected function createForeignRecords($service, TableSchema $schema, $records, $context = null)
     {
-//        if (!empty($service) && ($service !== $this->getServiceName())) {
-        $newIds = $this->handleVirtualRecords($service, '_table/' . $schema->getName(true), Verbs::POST, $records);
-//        } else {
-//            $tableName = $schema->getName();
-//            $builder = $this->dbConn->table($tableName);
-//            $fields = $schema->getColumns(true);
-//            $ssFilters = Session::getServiceFilters(Verbs::POST, $service, $schema->getName(true));
-//            $newIds = [];
-//            foreach ($records as $record) {
-//                $parsed = $this->parseRecord($record, $fields, $ssFilters);
-//                if (empty($parsed)) {
-//                    throw new BadRequestException('No valid fields were found in record.');
-//                }
-//
-//                $newIds[] = (int)$builder->insertGetId($parsed, $schema->primaryKey);
-//            }
-//        }
+        $newIds = $this->handleVirtualRecords($service, '_table/' . $schema->getName(true), Verbs::POST, $records, null, $context);
+
+        // Register compensating DELETE for cross-service rollback
+        if ($context && $context->shouldRollback() && !empty($newIds) && ($service !== $this->getServiceName())) {
+            $pkFields = $schema->getPrimaryKeyColumns();
+            $pkField = current($pkFields);
+            if ($pkField) {
+                $pkAlias = $pkField->getName(true);
+                $ids = [];
+                foreach ($newIds as $newId) {
+                    $val = is_array($newId) ? array_get($newId, $pkAlias) : $newId;
+                    if (!empty($val)) {
+                        $ids[] = $val;
+                    }
+                }
+                if (!empty($ids)) {
+                    $context->addCompensatingAction(
+                        $service,
+                        '_table/' . $schema->getName(true),
+                        Verbs::DELETE,
+                        null,
+                        [ApiOptions::IDS => implode(',', $ids), ApiOptions::ID_FIELD => $pkAlias]
+                    );
+                }
+            }
+        }
 
         return $newIds;
     }
@@ -2672,37 +2721,38 @@ abstract class BaseDbTableResource extends BaseDbResource
         $service,
         TableSchema $schema,
         ColumnSchema $linkerField,
-        $records
+        $records,
+        $context = null
     ) {
-//        if (!empty($service) && ($service !== $this->getServiceName())) {
-        $this->handleVirtualRecords($service, '_table/' . $schema->getName(true), Verbs::PATCH, $records);
-//        } else {
-//            $fields = $schema->getColumns(true);
-//            $ssFilters = Session::getServiceFilters(Verbs::PUT, $service, $schema->getName(true));
-//            // update existing and adopt new children
-//            foreach ($records as $record) {
-//                $pk = array_get($record, $linkerField->getName(true));
-//                $parsed = $this->parseRecord($record, $fields, $ssFilters, true);
-//                if (empty($parsed)) {
-//                    throw new BadRequestException('No valid fields were found for foreign link updates.');
-//                }
-//
-//                $builder = $this->dbConn->table($schema->getName());
-//                $builder->where($linkerField->name, $pk);
-//                $serverFilter = $this->buildQueryStringFromData($ssFilters);
-//                if (!empty($serverFilter)) {
-//                    Session::replaceLookups($serverFilter);
-//                    $params = [];
-//                    $filterString = $this->parseFilterString($serverFilter, $params, $this->tableFieldsInfo);
-//                    $builder->whereRaw($filterString, $params);
-//                }
-//
-//                $rows = $builder->update($parsed);
-//                if (0 >= $rows) {
-////            throw new NotFoundException( 'No foreign linked records were found using the given identifiers.' );
-//                }
-//            }
-//        }
+        // For cross-service rollback, fetch original state before updating
+        if ($context && $context->shouldRollback() && ($service !== $this->getServiceName()) && !empty($records)) {
+            $pkFields = $schema->getPrimaryKeyColumns();
+            $pkField = current($pkFields);
+            if ($pkField) {
+                $pkAlias = $pkField->getName(true);
+                $ids = [];
+                foreach ($records as $record) {
+                    $val = array_get($record, $pkAlias);
+                    if (!empty($val)) {
+                        $ids[] = $val;
+                    }
+                }
+                if (!empty($ids)) {
+                    $temp = [ApiOptions::IDS => implode(',', $ids), ApiOptions::ID_FIELD => $pkAlias];
+                    $originals = $this->retrieveVirtualRecords($service, '_table/' . $schema->getName(true), $temp);
+                    if (!empty($originals)) {
+                        $context->addCompensatingAction(
+                            $service,
+                            '_table/' . $schema->getName(true),
+                            Verbs::PATCH,
+                            $originals
+                        );
+                    }
+                }
+            }
+        }
+
+        $this->handleVirtualRecords($service, '_table/' . $schema->getName(true), Verbs::PATCH, $records, null, $context);
     }
 
     protected function updateForeignRecordsByIds(
@@ -2710,33 +2760,25 @@ abstract class BaseDbTableResource extends BaseDbResource
         TableSchema $schema,
         ColumnSchema $linkerField,
         $linkerIds,
-        $record
+        $record,
+        $context = null
     ) {
-//        if (!empty($service) && ($service !== $this->getServiceName())) {
+        // For cross-service rollback, fetch original state before updating
+        if ($context && $context->shouldRollback() && ($service !== $this->getServiceName()) && !empty($linkerIds)) {
+            $fetchTemp = [ApiOptions::IDS => $linkerIds, ApiOptions::ID_FIELD => $linkerField->getName(true)];
+            $originals = $this->retrieveVirtualRecords($service, '_table/' . $schema->getName(true), $fetchTemp);
+            if (!empty($originals)) {
+                $context->addCompensatingAction(
+                    $service,
+                    '_table/' . $schema->getName(true),
+                    Verbs::PATCH,
+                    $originals
+                );
+            }
+        }
+
         $temp = [ApiOptions::IDS => $linkerIds, ApiOptions::ID_FIELD => $linkerField->getName(true)];
-        $this->handleVirtualRecords($service, '_table/' . $schema->getName(true), Verbs::PATCH, $record, $temp);
-//        } else {
-//            $fields = $schema->getColumns(true);
-//            $ssFilters = Session::getServiceFilters(Verbs::PUT, $service, $schema->getName(true));
-//            $parsed = $this->parseRecord($record, $fields, $ssFilters, true);
-//            if (empty($parsed)) {
-//                throw new BadRequestException('No valid fields were found for foreign link updates.');
-//            }
-//            $builder = $this->dbConn->table($schema->getName());
-//            $builder->whereIn($linkerField->name, $linkerIds);
-//            $serverFilter = $this->buildQueryStringFromData($ssFilters);
-//            if (!empty($serverFilter)) {
-//                Session::replaceLookups($serverFilter);
-//                $params = [];
-//                $filterString = $this->parseFilterString($serverFilter, $params, $this->tableFieldsInfo);
-//                $builder->whereRaw($filterString, $params);
-//            }
-//
-//            $rows = $builder->update($parsed);
-//            if (0 >= $rows) {
-////            throw new NotFoundException( 'No foreign linked records were found using the given identifiers.' );
-//            }
-//        }
+        $this->handleVirtualRecords($service, '_table/' . $schema->getName(true), Verbs::PATCH, $record, $temp, $context);
     }
 
     protected function deleteForeignRecords(
@@ -2744,46 +2786,34 @@ abstract class BaseDbTableResource extends BaseDbResource
         TableSchema $schema,
         ColumnSchema $linkerField,
         $linkerIds,
-        $addCondition = null
+        $addCondition = null,
+        $context = null
     ) {
-//        if (!empty($service) && ($service !== $this->getServiceName())) {
         if (!empty($addCondition) && is_array($addCondition)) {
-            $filter = '(' . $linkerField->getName(true) . ' IN (' . implode(',', $$linkerIds) . '))';
+            $filter = '(' . $linkerField->getName(true) . ' IN (' . implode(',', $linkerIds) . '))';
             foreach ($addCondition as $key => $value) {
                 $column = $schema->getColumn($key);
-                $filter .= 'AND (' . $column->getName(true) . ' = ' . $value . ')';
+                $filter .= ' AND (' . $column->getName(true) . ' = ' . $value . ')';
             }
             $temp = [ApiOptions::FILTER => $filter];
         } else {
             $temp = [ApiOptions::IDS => $linkerIds, ApiOptions::ID_FIELD => $linkerField->getName(true)];
         }
 
-        $this->handleVirtualRecords($service, '_table/' . $schema->getName(true), Verbs::DELETE, null, $temp);
-//        } else {
-//            $builder = $this->dbConn->table($schema->getName());
-//            $builder->whereIn($linkerField->name, $linkerIds);
-//
-//            $ssFilters = Session::getServiceFilters(Verbs::DELETE, $service, $schema->getName(true));
-//            $serverFilter = $this->buildQueryStringFromData($ssFilters);
-//            if (!empty($serverFilter)) {
-//                Session::replaceLookups($serverFilter);
-//                $params = [];
-//                $filterString = $this->parseFilterString($serverFilter, $params, $this->tableFieldsInfo);
-//                $builder->whereRaw($filterString, $params);
-//            }
-//
-//            if (!empty($addCondition) && is_array($addCondition)) {
-//                foreach ($addCondition as $key => $value) {
-//                    $column = $schema->getColumn($key);
-//                    $builder->where($column->name, $value);
-//                }
-//            }
-//
-//            $rows = $builder->delete();
-//            if (0 >= $rows) {
-////            throw new NotFoundException( 'No foreign linked records were found using the given identifiers.' );
-//            }
-//        }
+        // For cross-service rollback, fetch records before deleting
+        if ($context && $context->shouldRollback() && ($service !== $this->getServiceName())) {
+            $originals = $this->retrieveVirtualRecords($service, '_table/' . $schema->getName(true), $temp);
+            if (!empty($originals)) {
+                $context->addCompensatingAction(
+                    $service,
+                    '_table/' . $schema->getName(true),
+                    Verbs::POST,
+                    $originals
+                );
+            }
+        }
+
+        $this->handleVirtualRecords($service, '_table/' . $schema->getName(true), Verbs::DELETE, null, $temp, $context);
     }
 
     /**
@@ -2800,7 +2830,8 @@ abstract class BaseDbTableResource extends BaseDbResource
         TableSchema $one_table,
         $one_record,
         RelationSchema $relation,
-        $many_records = []
+        $many_records = [],
+        $context = null
     ) {
         if (1 < count($relation->field)) {
             // todo How to handle multiple column foreign keys?
