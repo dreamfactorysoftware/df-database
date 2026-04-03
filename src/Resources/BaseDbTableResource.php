@@ -3164,7 +3164,16 @@ abstract class BaseDbTableResource extends BaseDbResource
         $value = $this->parent->getSchema()->typecastToNative($value, $field_info);
 
         if (!empty($function = $field_info->getDbFunction($for_update ? DbFunctionUses::UPDATE : DbFunctionUses::INSERT))) {
-            $function = str_ireplace('{value}', (is_string($value) ? "'$value'" : $value), $function);
+            // SECURITY FIX: use quoteValue() instead of bare string interpolation to prevent
+            // SQL injection via db_function templates. quoteValue() calls PDO::quote() (with a
+            // driver-specific fallback) so single quotes and other metacharacters in user-supplied
+            // string values are properly escaped before being embedded in the SQL expression.
+            if (is_string($value)) {
+                $quotedValue = $this->parent->getSchema()->quoteValue($value);
+            } else {
+                $quotedValue = $value;
+            }
+            $function = str_ireplace('{value}', $quotedValue, $function);
             $value = $this->parent->getConnection()->raw($function);
         }
 
