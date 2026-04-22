@@ -2,6 +2,11 @@
 
 > **Note:** This repository contains the database code of the DreamFactory platform. If you want the full DreamFactory platform, visit the main [DreamFactory repository](https://github.com/dreamfactorysoftware/dreamfactory).
 
+
+## Overview
+
+DreamFactory is a secure, self-hosted enterprise data access platform that provides governed API access to any data source, connecting enterprise applications and on-prem LLMs with role-based access and identity passthrough.
+
 ## Documentation
 
 Documentation for the platform can be found on the [DreamFactory wiki](http://wiki.dreamfactory.com).
