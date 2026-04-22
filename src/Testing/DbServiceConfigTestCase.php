@@ -38,7 +38,7 @@ class DbServiceConfigTestCase extends TestCase
         return $config;
     }
 
-    public function tearDown()
+    public function tearDown(): void
     {
         foreach ($this->types as $type) {
             Service::whereName($type . '-db')->delete();
