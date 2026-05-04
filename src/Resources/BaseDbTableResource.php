@@ -70,7 +70,11 @@ abstract class BaseDbTableResource extends BaseDbResource
                 'Relationship filter values must be scalar primary-key values.'
             );
         }
-        if (preg_match('/^[A-Za-z0-9_-]+$/', $value) !== 1) {
+        // Allowlist: alphanumerics + a small set of identifier-ish characters
+        // (dot, at, plus, hyphen, underscore) to support email-style PKs,
+        // UUIDs, and slugs. Keeps quotes / parens / whitespace / SQL keywords
+        // out — those are the actual injection enablers.
+        if (preg_match('/^[A-Za-z0-9._@+\-]+$/', $value) !== 1) {
             throw new BadRequestException(
                 'Relationship filter primary-key value contains forbidden characters.'
             );
