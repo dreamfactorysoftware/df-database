@@ -31,10 +31,13 @@
   "minimum-stability": "dev",
   "prefer-stable":     true,
   "require":     {
+    "php": "^8.3",
     "dreamfactory/df-core": "~1.0.4"
   },
   "require-dev": {
-    "phpunit/phpunit": "@stable"
+    "laravel/framework": "^13.7",
+    "phpunit/phpunit": "^11.5.3",
+    "orchestra/testbench": "^11.0"
   },
   "autoload":    {
     "psr-4": {
