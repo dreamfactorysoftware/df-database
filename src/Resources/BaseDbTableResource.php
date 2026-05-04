@@ -43,6 +43,42 @@ abstract class BaseDbTableResource extends BaseDbResource
     //*************************************************************************
 
     /**
+     * Format a primary-key value for safe interpolation into an
+     * ApiOptions::FILTER expression.
+     *
+     * Numeric values are returned unquoted. String values must match a strict
+     * allowlist (alphanumeric, dash, underscore — covers integers, UUIDs,
+     * slugs); any other character throws BadRequestException. The strict
+     * allowlist forecloses the SQL-syntax bypass paths the relationship code
+     * has historically been vulnerable to (single quote, comment, paren,
+     * stacked statement) without requiring deep changes to the downstream
+     * filter parser.
+     *
+     * @param  mixed $value  The PK value to embed.
+     * @return string        Interpolation-safe representation: numeric raw,
+     *                       string single-quoted.
+     * @throws BadRequestException  When $value is non-scalar or contains
+     *                              characters outside the allowlist.
+     */
+    public static function formatPkFilterValue($value): string
+    {
+        if (is_int($value) || is_float($value)) {
+            return (string) $value;
+        }
+        if (!is_string($value)) {
+            throw new BadRequestException(
+                'Relationship filter values must be scalar primary-key values.'
+            );
+        }
+        if (preg_match('/^[A-Za-z0-9_-]+$/', $value) !== 1) {
+            throw new BadRequestException(
+                'Relationship filter primary-key value contains forbidden characters.'
+            );
+        }
+        return "'" . $value . "'";
+    }
+
+    /**
      * Resource tag for dealing with table schema
      */
     const RESOURCE_NAME = '_table';
@@ -2096,7 +2132,7 @@ abstract class BaseDbTableResource extends BaseDbResource
 
                 // Get records
                 $refFieldName = $refField->getName(true);
-                $extras[ApiOptions::FILTER] = "($refFieldName IN (" . implode(',', $values) . '))';
+                $extras[ApiOptions::FILTER] = "($refFieldName IN (" . implode(',', array_map([self::class, 'formatPkFilterValue'], $values)) . '))';
                 $fields = array_get($extras, 'fields');
                 if ($removeLater = static::addToFields($fields, $refFieldName)) {
                     $extras['fields'] = $fields;
@@ -2139,7 +2175,7 @@ abstract class BaseDbTableResource extends BaseDbResource
 
                 // Get records
                 $refFieldName = $refField->getName(true);
-                $extras[ApiOptions::FILTER] = "($refFieldName IN (" . implode(',', $values) . '))';
+                $extras[ApiOptions::FILTER] = "($refFieldName IN (" . implode(',', array_map([self::class, 'formatPkFilterValue'], $values)) . '))';
                 $fields = array_get($extras, 'fields');
                 if ($removeLater = static::addToFields($fields, $refFieldName)) {
                     $extras['fields'] = $fields;
@@ -2182,7 +2218,7 @@ abstract class BaseDbTableResource extends BaseDbResource
 
                 // Get records
                 $refFieldName = $refField->getName(true);
-                $extras[ApiOptions::FILTER] = "($refFieldName IN (" . implode(',', $values) . '))';
+                $extras[ApiOptions::FILTER] = "($refFieldName IN (" . implode(',', array_map([self::class, 'formatPkFilterValue'], $values)) . '))';
                 $fields = array_get($extras, 'fields');
                 if ($removeLater = static::addToFields($fields, $refFieldName)) {
                     $extras['fields'] = $fields;
@@ -2235,7 +2271,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                 // Get records
                 $junctionFieldName = $junctionField->getName(true);
                 $junctionRefFieldName = $junctionRefField->getName(true);
-                $filter = "($junctionFieldName IN (" . implode(',', $values) . '))';
+                $filter = "($junctionFieldName IN (" . implode(',', array_map([self::class, 'formatPkFilterValue'], $values)) . '))';
                 $filter .= static::padOperator(DbLogicalOperators::AND_STR);
                 $filter .= "($junctionRefFieldName " . DbComparisonOperators::IS_NOT_NULL . ')';
                 $temp = [
@@ -2267,7 +2303,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                         $refFieldName = $refField->getName(true);
 
                         // Get records
-                        $filter = $refFieldName . ' IN (' . implode(',', $relatedIds) . ')';
+                        $filter = $refFieldName . ' IN (' . implode(',', array_map([self::class, 'formatPkFilterValue'], $relatedIds)) . ')';
                         $extras[ApiOptions::FILTER] = $filter;
                         $fields = array_get($extras, 'fields');
                         if ($removeLater = static::addToFields($fields, $refFieldName)) {
@@ -2361,7 +2397,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             } else {
                 // update or insert a parent
                 // Get records
-                $filterVal = ('string' === gettype($id)) ? "'$id'" : $id;
+                $filterVal = self::formatPkFilterValue($id);
                 $temp = [ApiOptions::FILTER => "$pkFieldAlias = $filterVal"];
                 $matchIds = $this->retrieveVirtualRecords($refService, '_table/' . $refTable, $temp);
 
@@ -2457,7 +2493,7 @@ abstract class BaseDbTableResource extends BaseDbResource
             if (empty($child_record)) {
                 // Get record
                 $temp = [
-                    ApiOptions::FILTER => $refFieldAlias . ' = ' . $parent_id,
+                    ApiOptions::FILTER => $refFieldAlias . ' = ' . self::formatPkFilterValue($parent_id),
                     ApiOptions::FIELDS => $pkFieldAlias,
                 ];
                 $matchIds = $this->retrieveVirtualRecords($refService, '_table/' . $refTable, $temp);
@@ -2509,7 +2545,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                         if ($pkAutoSet) {
                             $this->updateForeignRecords($refService, $refSchema, $pkField, [$child_record]);
                         } else {
-                            $temp = [ApiOptions::FILTER => $pkFieldAlias . ' = ' . $id];
+                            $temp = [ApiOptions::FILTER => $pkFieldAlias . ' = ' . self::formatPkFilterValue($id)];
                             $matchIds = $this->retrieveVirtualRecords($refService, '_table/' . $refTable, $temp);
                             if ($found = static::findRecordByNameValue($matchIds, $pkFieldAlias, $id)) {
                                 $this->updateForeignRecords($refService, $refSchema, $pkField, [$child_record]);
@@ -2637,10 +2673,11 @@ abstract class BaseDbTableResource extends BaseDbResource
             if (!empty($upsertMany)) {
                 // Get records
                 $checkIds = array_keys($upsertMany);
-                if (count($checkIds) > 1) {
-                    $filter = $pkFieldAlias . ' IN (' . implode(',', $checkIds) . ')';
+                $safeCheckIds = array_map(static fn ($v) => self::formatPkFilterValue($v), $checkIds);
+                if (count($safeCheckIds) > 1) {
+                    $filter = $pkFieldAlias . ' IN (' . implode(',', $safeCheckIds) . ')';
                 } else {
-                    $filter = $pkFieldAlias . ' = ' . $checkIds[0];
+                    $filter = $pkFieldAlias . ' = ' . $safeCheckIds[0];
                 }
                 $temp = [ApiOptions::FILTER => $filter];
                 $matchIds = $this->retrieveVirtualRecords($refService, '_table/' . $refTable, $temp);
@@ -2790,7 +2827,7 @@ abstract class BaseDbTableResource extends BaseDbResource
         $context = null
     ) {
         if (!empty($addCondition) && is_array($addCondition)) {
-            $filter = '(' . $linkerField->getName(true) . ' IN (' . implode(',', $linkerIds) . '))';
+            $filter = '(' . $linkerField->getName(true) . ' IN (' . implode(',', array_map([self::class, 'formatPkFilterValue'], $linkerIds)) . '))';
             foreach ($addCondition as $key => $value) {
                 $column = $schema->getColumn($key);
                 $filter .= ' AND (' . $column->getName(true) . ' = ' . $value . ')';
@@ -2960,7 +2997,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                 // Get records
                 $checkIds = array_keys($upsertMany);
                 if (count($checkIds) > 1) {
-                    $filter = $refPkFieldAlias . ' IN (' . implode(',', $checkIds) . ')';
+                    $filter = $refPkFieldAlias . ' IN (' . implode(',', array_map([self::class, 'formatPkFilterValue'], $checkIds)) . ')';
                 } else {
                     $filter = $refPkFieldAlias . ' = ' . $checkIds[0];
                 }
