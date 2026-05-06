@@ -3003,7 +3003,7 @@ abstract class BaseDbTableResource extends BaseDbResource
                 if (count($checkIds) > 1) {
                     $filter = $refPkFieldAlias . ' IN (' . implode(',', array_map([self::class, 'formatPkFilterValue'], $checkIds)) . ')';
                 } else {
-                    $filter = $refPkFieldAlias . ' = ' . $checkIds[0];
+                    $filter = $refPkFieldAlias . ' = ' . self::formatPkFilterValue($checkIds[0]);
                 }
                 $temp = [ApiOptions::FILTER => $filter];
                 $matchIds = $this->retrieveVirtualRecords($refService, '_table/' . $refTable, $temp);

@@ -26,6 +26,16 @@ use PHPUnit\Framework\TestCase;
  */
 class RelationshipFilterPkValidationTest extends TestCase
 {
+    private string $sourcePath;
+    private string $contents;
+
+    protected function setUp(): void
+    {
+        $this->sourcePath = __DIR__ . '/../../src/Resources/BaseDbTableResource.php';
+        $this->assertFileExists($this->sourcePath);
+        $this->contents = file_get_contents($this->sourcePath);
+    }
+
     /**
      * @dataProvider validPkProvider
      */
@@ -74,5 +84,19 @@ class RelationshipFilterPkValidationTest extends TestCase
             'array'                  => [['evil']],
             'object'                 => [(object) ['x' => 1]],
         ];
+    }
+
+    public function testSingleUpsertIdPathAlsoUsesFormatter(): void
+    {
+        $start = strpos($this->contents, 'if (!empty($upsertMany))');
+        $this->assertNotFalse($start, 'upsertMany branch must exist');
+        $end = strpos($this->contents, "\n            if (!empty($insertMany))", $start);
+        $body = substr($this->contents, $start, $end === false ? null : ($end - $start));
+
+        $this->assertStringContainsString(
+            'self::formatPkFilterValue($checkIds[0])',
+            $body,
+            'Single-ID upsert filter path must route values through formatPkFilterValue()'
+        );
     }
 }
