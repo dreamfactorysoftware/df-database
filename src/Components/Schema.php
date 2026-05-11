@@ -1105,10 +1105,39 @@ MYSQL;
 
         // string additional SQL fragment that will be appended to the generated SQL
         if (!empty($addOn = array_get($table, 'options'))) {
+            self::assertSafeTableOptions($addOn);
             $sql .= ' ' . $addOn;
         }
 
         return $this->connection->statement($sql);
+    }
+
+    /**
+     * Validate the caller-supplied `options` string before appending it to
+     * a CREATE TABLE statement. Allows the typical ENGINE/CHARSET fragments
+     * (alphanumeric tokens, whitespace, '=', ',', and quoted value literals)
+     * but rejects shell/SQL metacharacters that would enable stacked
+     * statements or injection.
+     *
+     * @throws \DreamFactory\Core\Exceptions\BadRequestException
+     */
+    public static function assertSafeTableOptions(string $options): void
+    {
+        // Reject anything containing a semicolon (stacked statements),
+        // backslash, comment markers, or backtick / double-quote that
+        // could break out of the appended fragment.
+        if (preg_match('/[;\\\\`]|--|\/\*|\*\//', $options) === 1) {
+            throw new \DreamFactory\Core\Exceptions\BadRequestException(
+                'Table options contain forbidden characters.'
+            );
+        }
+        // Allowlist: word chars, whitespace, '=', ',', '.', '-', '+', and
+        // single-quoted literal values. Anything outside this set fails.
+        if (preg_match('/^[A-Za-z0-9_\s=,\.\-\+\'"\(\)\/]*$/u', $options) !== 1) {
+            throw new \DreamFactory\Core\Exceptions\BadRequestException(
+                'Table options string contains characters not allowed in a CREATE TABLE options append.'
+            );
+        }
     }
 
     /**
@@ -1150,7 +1179,27 @@ MYSQL;
      */
     public function dropTable($table)
     {
-        return $this->connection->statement("DROP TABLE $table");
+        // Defense-in-depth: callers in the schema layer typically pass a
+        // pre-quoted identifier (TableSchema->quotedName), but a direct
+        // caller could pass a raw table name. quoteTableName() is idempotent
+        // when the input already starts with the quote character on each
+        // driver (MySQL backtick, sqlsrv brackets, pgsql/sqlite double-quote).
+        $quoted = (str_starts_with(ltrim($table), $this->getQuoteChar()) ?? false)
+            ? $table
+            : $this->quoteTableName($table);
+        return $this->connection->statement("DROP TABLE {$quoted}");
+    }
+
+    /**
+     * Driver-aware leading quote character. Subclasses override
+     * LEFT_QUOTE_CHARACTER; default is the SQL standard double-quote.
+     */
+    protected function getQuoteChar(): string
+    {
+        $cls = static::class;
+        return defined("{$cls}::LEFT_QUOTE_CHARACTER")
+            ? constant("{$cls}::LEFT_QUOTE_CHARACTER")
+            : '"';
     }
 
     /**
@@ -1162,14 +1211,23 @@ MYSQL;
     public function dropColumns($table, $columns)
     {
         $commands = [];
+        $quoteChar = $this->getQuoteChar();
         foreach ((array)$columns as $column) {
             if (!empty($column)) {
-                $commands[] = "DROP COLUMN " . $column;
+                // Quote each column identifier — callers historically passed
+                // raw user-supplied column names. Skip if already quoted.
+                $quotedCol = str_starts_with(ltrim($column), $quoteChar)
+                    ? $column
+                    : $this->quoteColumnName($column);
+                $commands[] = "DROP COLUMN " . $quotedCol;
             }
         }
 
         if (!empty($commands)) {
-            return $this->connection->statement("ALTER TABLE $table " . implode(',', $commands));
+            $quotedTable = str_starts_with(ltrim($table), $quoteChar)
+                ? $table
+                : $this->quoteTableName($table);
+            return $this->connection->statement("ALTER TABLE {$quotedTable} " . implode(',', $commands));
         }
 
         return false;
