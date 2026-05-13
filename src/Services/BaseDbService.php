@@ -266,6 +266,21 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
      */
     public function getTableNames($schema = null, $refresh = false)
     {
+        class_exists(TableSchema::class);
+        class_exists(ColumnSchema::class);
+        class_exists(RelationSchema::class);
+
+        $tables = $this->getFromCache('tables');
+        if (!$refresh && is_array($tables)) {
+            foreach ($tables as $table) {
+                if (!$table instanceof TableSchema) {
+                    $this->removeFromCache('tables');
+                    $tables = null;
+                    break;
+                }
+            }
+        }
+
         if ($refresh || (is_null($tables = $this->getFromCache('tables')))) {
             $tables = [];
             $defaultSchema = $this->getNamingSchema();
@@ -327,6 +342,19 @@ abstract class BaseDbService extends BaseRestService implements DbExtrasInterfac
     {
         $result = null;
         $cacheKey = 'table:' . strtolower($name);
+
+        class_exists(TableSchema::class);
+        class_exists(ColumnSchema::class);
+        class_exists(RelationSchema::class);
+
+        if (!$refresh && ($cached = $this->getFromCache($cacheKey)) !== null) {
+            if ($cached instanceof TableSchema) {
+                return $cached;
+            }
+
+            $this->removeFromCache($cacheKey);
+        }
+
         if ($refresh || (is_null($result = $this->getFromCache($cacheKey)))) {
             $schema = $this->getSchema();
             if ($tableSchema = array_get($this->getTableNames(), strtolower($name))) {
