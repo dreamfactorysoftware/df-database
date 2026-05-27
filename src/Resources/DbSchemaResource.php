@@ -1460,14 +1460,27 @@ class DbSchemaResource extends BaseRestResource
         }
 
         try {
-            $tableSchema = $this->parent->getTableSchema($table);
+            // Refresh so a stale schema cache (e.g. relation added in another request)
+            // does not cause the relation lookup below to silently miss.
+            $tableSchema = $this->parent->getTableSchema($table, true);
             if ($resource = $tableSchema->getRelation($relationship)) {
                 if ($resource->isVirtual) {
                     $this->removeSchemaVirtualRelationships($table, [$resource->toArray()]);
                 } else {
-                    $this->parent->getSchema()->dropRelationship($tableSchema->quotedName, $resource);
+                    // Native FK relationships derive from the database schema itself.
+                    // Schema::dropRelationship is a stub returning false in the base
+                    // class — surface that honestly instead of returning 200/success.
+                    $dropped = $this->parent->getSchema()->dropRelationship($tableSchema->quotedName, $resource);
+                    if ($dropped === false) {
+                        throw new BadRequestException(
+                            "Relationship '$relationship' is derived from a native foreign key on table '$table' and cannot be removed via this endpoint. " .
+                            "Drop the underlying foreign key constraint via the database directly."
+                        );
+                    }
                 }
                 $this->removeSchemaExtrasForRelated($table, $relationship);
+            } else {
+                throw new NotFoundException("Relationship '$relationship' does not exist on table '$table'.");
             }
         } catch (\Exception $ex) {
             error_log($ex->getMessage());
@@ -2264,6 +2277,30 @@ class DbSchemaResource extends BaseRestResource
                     $relation = array_except($relation, $noDiff);
                     if (!empty(array_diff_assoc($relation, array_except($oldArray, $noDiff)))) {
                         $relation['table'] = $table_schema->name;
+
+                        // setSchemaVirtualRelationships updateOrCreate keys on the full
+                        // (type, field, ref_*, junction_*) tuple. If any of those columns
+                        // changed, the call would INSERT a duplicate row instead of
+                        // updating the existing one. Queue the old row for deletion so
+                        // we end up with exactly one row representing this relation.
+                        if ($oldRelation->isVirtual) {
+                            $tupleCols = [
+                                'type', 'field', 'ref_service_id', 'ref_table', 'ref_field',
+                                'junction_service_id', 'junction_table', 'junction_field', 'junction_ref_field',
+                            ];
+                            $tupleChanged = false;
+                            foreach ($tupleCols as $col) {
+                                if ((array_get($oldArray, $col) ?: null) != (array_get($relation, $col) ?: null)) {
+                                    $tupleChanged = true;
+                                    break;
+                                }
+                            }
+                            if ($tupleChanged) {
+                                $oldRow = $oldArray;
+                                $oldRow['table'] = $table_schema->name;
+                                $dropVirtuals[$table_schema->name][] = $oldRow;
+                            }
+                        }
                         $virtuals[] = $relation;
                     }
                 }
@@ -2301,10 +2338,10 @@ class DbSchemaResource extends BaseRestResource
             }
         }
 
-        if ($allow_delete && isset($oldSchema)) {
+        if ($allow_delete) {
             // check for relations to drop
-            /** @type RelationSchema $oldField */
-            foreach ($oldSchema->getRelations() as $oldRelation) {
+            /** @type RelationSchema $oldRelation */
+            foreach ($table_schema->getRelations() as $oldRelation) {
                 $found = false;
                 foreach ($related as $relation) {
                     $relation = array_change_key_case($relation, CASE_LOWER);
@@ -2428,6 +2465,14 @@ class DbSchemaResource extends BaseRestResource
      */
     protected function cleanClientRelation(array &$relation)
     {
+        // Admin UI sends camelCase keys (isVirtual, refServiceId, refField, ...);
+        // backend logic looks them up as snake_case. Convert before the lowercase pass.
+        $converted = [];
+        foreach ($relation as $key => $value) {
+            $converted[Str::snake($key)] = $value;
+        }
+        $relation = $converted;
+
         $relation = array_change_key_case($relation, CASE_LOWER);
         // make sure we have boolean values, not integers or strings
         $booleanFieldNames = [
@@ -2457,6 +2502,51 @@ class DbSchemaResource extends BaseRestResource
                         throw new \Exception("Invalid schema detected - invalid or missing type element.");
                         break;
                 }
+            }
+            // Validate the per-type tuple is complete BEFORE the row is written.
+            // db_virtual_relationship doesn't store the relationship name — it's
+            // recomputed via RelationSchema::buildName on every schema describe.
+            // An incomplete tuple (e.g. many_many without junction_table) would
+            // cause every subsequent describe to throw a 500 until the row is
+            // manually deleted from the DB.
+            if (empty(array_get($relation, 'ref_table'))) {
+                throw new BadRequestException("Invalid relationship: 'ref_table' is required.");
+            }
+            switch ($relation['type']) {
+                case RelationSchema::BELONGS_TO:
+                    if (empty(array_get($relation, 'field'))) {
+                        throw new BadRequestException("Invalid belongs_to relationship: 'field' is required.");
+                    }
+                    break;
+                case RelationSchema::HAS_ONE:
+                case RelationSchema::HAS_MANY:
+                    if (empty(array_get($relation, 'ref_field'))) {
+                        throw new BadRequestException("Invalid {$relation['type']} relationship: 'ref_field' is required.");
+                    }
+                    break;
+                case RelationSchema::MANY_MANY:
+                    if (empty(array_get($relation, 'junction_table'))) {
+                        throw new BadRequestException("Invalid many_many relationship: 'junction_table' is required.");
+                    }
+                    if (empty(array_get($relation, 'junction_field'))) {
+                        throw new BadRequestException("Invalid many_many relationship: 'junction_field' is required.");
+                    }
+                    if (empty(array_get($relation, 'junction_ref_field'))) {
+                        throw new BadRequestException("Invalid many_many relationship: 'junction_ref_field' is required.");
+                    }
+                    break;
+            }
+            // Non-many_many relations have no use for junction_* values. If a payload
+            // arrives with stale junction fields (e.g. user toggled type away from
+            // many_many in the UI without fully clearing the form), null them out so
+            // we don't persist an incoherent row. Otherwise the next schema describe
+            // returns junction_service_id with a null junction_table, which the admin
+            // UI then uses to construct the URL `/_schema/null`.
+            if ($relation['type'] !== RelationSchema::MANY_MANY) {
+                $relation['junction_service_id'] = null;
+                $relation['junction_table']      = null;
+                $relation['junction_field']      = null;
+                $relation['junction_ref_field']  = null;
             }
         } else {
             if (empty(array_get($relation, 'name'))) {
